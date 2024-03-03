@@ -1,7 +1,7 @@
-.idea
-cache
-cache__
-cache_old
-cmake-build-*
-venv
+# .idea
+# cache
+# cache__
+# cache_old
+# cmake-build-*
+# venv
 /build/
