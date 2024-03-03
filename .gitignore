@@ -5,3 +5,4 @@
 # cmake-build-*
 # venv
 /build/
+wowViewerLib/src/engine/shader/ShaderDefinitions.h
