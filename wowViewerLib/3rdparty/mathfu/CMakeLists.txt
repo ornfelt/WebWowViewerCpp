@@ -71,7 +71,11 @@ function(mathfu_configure_flags target)
     # Clang, change -msse4.1 to -msse2.
     if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR
         CMAKE_COMPILER_IS_CLANGXX)
-      target_compile_options(${target} PRIVATE -msse4.1)
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64")
+            target_compile_options(${target} PRIVATE -msse4.1)
+        else()
+            target_compile_options(${target} PRIVATE)
+        endif()
     endif()
     # Enable SSE2 by default when building with MSVC for 32-bit targets.
     # Note that SSE2 is enabled by default for 64-bit targets, and the
