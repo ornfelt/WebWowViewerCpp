@@ -6,6 +6,7 @@
 #include <fstream>
 #include <vector>
 #include <unordered_map>
+#include <cstdint>
 
 template <typename T>
 inline constexpr const uint32_t operator+ (T const val) { return static_cast<const uint32_t>(val); };

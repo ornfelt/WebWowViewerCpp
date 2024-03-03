@@ -177,11 +177,25 @@ configure_filesVLK(
         ${GLSL_TARGET_FOLDER}/glsl/glsl20/
         ${GLSL_TARGET_FOLDER}/glsl/glsl3.3/)
 
-add_custom_command(
-        OUTPUT ${SPIRV_META_FILE}
-        COMMAND ${APP_RUN_PREFIX} ${PATH_TO_NATIVE_SPIRV_REFLECTION} -sf ${SPIRV_BINARY_FILES} > ${SPIRV_META_FILE}
-        DEPENDS ${SPIRV_BINARY_FILES} spirv_reflection glslangValidator ShadersVulkanNonOpt
-)
+if(UNIX AND NOT APPLE)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM|AARCH64")
+    message(STATUS "Skipping custom command because system is Linux but not ARM/ARM64...")
+  else()
+        # Either ARM/ARM64 Linux, or not Linux at all
+        add_custom_command(
+                OUTPUT ${SPIRV_META_FILE}
+                COMMAND ${APP_RUN_PREFIX} ${PATH_TO_NATIVE_SPIRV_REFLECTION} -sf ${SPIRV_BINARY_FILES} > ${SPIRV_META_FILE}
+                DEPENDS ${SPIRV_BINARY_FILES} spirv_reflection glslangValidator ShadersVulkanNonOpt
+        )
+  endif()
+else()
+    # Not Linux
+    add_custom_command(
+            OUTPUT ${SPIRV_META_FILE}
+            COMMAND ${APP_RUN_PREFIX} ${PATH_TO_NATIVE_SPIRV_REFLECTION} -sf ${SPIRV_BINARY_FILES} > ${SPIRV_META_FILE}
+            DEPENDS ${SPIRV_BINARY_FILES} spirv_reflection glslangValidator ShadersVulkanNonOpt
+    )
+endif()
 
 add_custom_target(SPIRV_EXTRACT_META DEPENDS ${SPIRV_META_FILE})
 
