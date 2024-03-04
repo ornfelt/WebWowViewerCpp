@@ -282,7 +282,8 @@ if(MSVC)
     # Copy glew32.dll to the appropriate build configuration directory
     add_custom_command(TARGET AWebWoWViewerCpp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
-                "${CMAKE_SOURCE_DIR}/wowViewerLib/3rdparty/glew_win/bin/$<CONFIG>/x64/glew32.dll"
+                #"${CMAKE_SOURCE_DIR}/wowViewerLib/3rdparty/glew_win/bin/$<CONFIG>/x64/glew32.dll"
+                "${CMAKE_SOURCE_DIR}/wowViewerLib/3rdparty/glew_win/bin/Release/x64/glew32.dll"
                 "$<TARGET_FILE_DIR:AWebWoWViewerCpp>"
         COMMENT "Copying glew32.dll to build configuration directory")
 
