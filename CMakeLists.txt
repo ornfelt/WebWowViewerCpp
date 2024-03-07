@@ -267,6 +267,55 @@ find_package( Threads REQUIRED )
 add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/SQLiteCpp EXCLUDE_FROM_ALL)
 
 add_executable(AWebWoWViewerCpp ${SOURCE_FILES})
+
+if(MSVC)
+    # Copy glsl and spirv directories to the appropriate build configuration directory
+    add_custom_command(TARGET AWebWoWViewerCpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/glsl"
+                "$<TARGET_FILE_DIR:AWebWoWViewerCpp>/glsl"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/spirv"
+                "$<TARGET_FILE_DIR:AWebWoWViewerCpp>/spirv"
+        COMMENT "Copying GLSL and SPIRV directories to build configuration directory")
+
+    # Copy glew32.dll to the appropriate build configuration directory
+    add_custom_command(TARGET AWebWoWViewerCpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                #"${CMAKE_SOURCE_DIR}/wowViewerLib/3rdparty/glew_win/bin/$<CONFIG>/x64/glew32.dll"
+                "${CMAKE_SOURCE_DIR}/wowViewerLib/3rdparty/glew_win/bin/Release/x64/glew32.dll"
+                "$<TARGET_FILE_DIR:AWebWoWViewerCpp>"
+        COMMENT "Copying glew32.dll to build configuration directory")
+
+    # Custom command to copy the export.db3 file
+    add_custom_command(TARGET AWebWoWViewerCpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                "${CMAKE_SOURCE_DIR}/db/export.db3"
+                "$<TARGET_FILE_DIR:AWebWoWViewerCpp>"
+        COMMENT "Copying export.db3 to build directory")
+
+    # Custom command to copy the definitions directory
+    add_custom_command(TARGET AWebWoWViewerCpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/db/definitions"
+                "$<TARGET_FILE_DIR:AWebWoWViewerCpp>/definitions"
+        COMMENT "Copying definitions directory to build directory")
+else()
+    # Custom command to copy the export.db3 file
+    add_custom_command(TARGET AWebWoWViewerCpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                "${CMAKE_SOURCE_DIR}/db/export.db3"
+                "${CMAKE_BINARY_DIR}/export.db3"
+        COMMENT "Copying export.db3 to build directory")
+
+    # Custom command to copy the definitions directory
+    add_custom_command(TARGET AWebWoWViewerCpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/db/definitions"
+                "${CMAKE_BINARY_DIR}/definitions"
+        COMMENT "Copying definitions directory to build directory")
+endif()
+
 if (Vulkan_FOUND)
 	add_definitions(-DLINK_VULKAN)
 endif()
