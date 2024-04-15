@@ -1097,6 +1097,9 @@ void Map::checkExterior(mathfu::vec4 &cameraPos,
     if (m_wdlObject != nullptr) {
         m_wdlObject->checkFrustumCulling(frustumData, cameraPos, exteriorView->m2List, cullStage->wmoArray);
     }
+    // TODO Update character pos based on camerapos!
+    //m_wdlObject->m2Objects.
+
     cullExteriorWDLCull.endMeasurement();
 
     cullExteriorGetCands.beginMeasurement();

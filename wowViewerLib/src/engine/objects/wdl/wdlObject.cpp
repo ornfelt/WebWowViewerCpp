@@ -43,6 +43,28 @@ void WdlObject::loadM2s() {
         }
     }
 
+
+			// Custom character
+			auto m2Object = std::make_shared<M2Object>(m_api, false, false);
+			m2Object->setLoadParams(0, {}, {});
+			m2Object->setModelFileId(125644);
+			//auto rotationMatrix = MathHelper::RotationZ(msso_rec.rotationInRads.z - M_PI_2);
+			//rotationMatrix *= MathHelper::RotationY(msso_rec.rotationInRads.x);
+			//rotationMatrix *= MathHelper::RotationX(msso_rec.rotationInRads.y);
+//            auto quat = mathfu::quat::FromMatrix(rotationMatrix);
+//            auto rotationMatrix1 = quat.ToMatrix4();
+
+			m2Object->createPlacementMatrix(
+				mathfu::vec3(-9643.5, 1233.3, 28.4),
+				0,
+				mathfu::vec3(1.0, 1.0, 1.0),
+				nullptr);
+				m2Object->calcWorldPosition();
+				m2Object->setAlwaysDraw(true);
+				m2Objects.push_back(m2Object);
+
+
+
     //LoadSkyObjects
     if (m_wdlFile->m_mssn_len > 0) {
         for (int i = 0; i < m_wdlFile->m_mssn_len; i++) {
