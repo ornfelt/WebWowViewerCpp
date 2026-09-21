@@ -15,10 +15,10 @@ class WmoMainGeom;
 
 class WmoMainGeom : public PersistentFile {
 public:
-    WmoMainGeom(std::string fileName){};
-    WmoMainGeom(int fileDataId){};
+    WmoMainGeom(std::string fileName) : PersistentFile(fileName) {};
+    WmoMainGeom(int fileDataId) : PersistentFile(fileDataId) {};
 
-    void process(HFileContent wmoMainFile, const std::string &fileName) override;
+    void process(HFileContent wmoMainFile) override;
 private:
     static chunkDef<WmoMainGeom> wmoMainTable;
 public:
@@ -70,8 +70,20 @@ public:
     PointerChecker<MAVG> mavgs = (mavgsLen);
     int mavgsLen = 0;
 
+    PointerChecker<MAVD> mavds = (mavdsLen);
+    int mavdsLen = 0;
+
     PointerChecker<mathfu::vec4_packed> convexVolumePlanes = (convexVolumePlanesLen);
     int convexVolumePlanesLen = 0;
+
+    PointerChecker<mapobject_new_light_def> newLights = (newLightsLen);
+    int newLightsLen = 0;
+
+    PointerChecker<C4Vector> materialUVSpeed = (materialUVSpeedLen);
+    int materialUVSpeedLen = 0;
+
+    PointerChecker<float> m_doodadAdditionalInfo = (m_doodadAdditionalInfoLen);
+    int m_doodadAdditionalInfoLen = 0;
 
     int skyboxM2FileId = 0;
 };

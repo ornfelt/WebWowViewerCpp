@@ -78,7 +78,12 @@ struct SMMapObjDef {
         uint16_t modf_use_lod : 1;             // WoD(?)+: also load _LOD1.WMO for use dependent on distance
         uint16_t modf_unk_4 : 1;               // Legion(?)+: unknown
         uint16_t modf_entry_is_filedata_id : 1;               // Legion(?)+: unknown
-        uint16_t unused : 12;
+        uint16_t modf_unk_16 : 1;
+        uint16_t modf_unk_32 : 1;
+        uint16_t modf_unk_64 : 1;
+        uint16_t modf_use_sets_from_mwds : 1;
+
+        uint16_t unused : 8;
     } flags;               // values from enum MODFFlags.
     uint16_t doodadSet;           // which WMO doodad set is used.
     uint16_t nameSet;             // which WMO name set is used. Used for renaming goldshire inn to northshire inn while using the same model.
@@ -94,8 +99,13 @@ struct SMMapObjDefObj1 {                        // same as MODF but without boun
         uint16_t modf_destroyable : 1;         // set for destroyable buildings like the tower in DeathknightStart. This makes it a server-controllable game object.
         uint16_t modf_use_lod : 1;             // WoD(?)+: also load _LOD1.WMO for use dependent on distance
         uint16_t modf_unk_4 : 1;               // Legion(?)+: unknown
-        uint16_t modf_entry_is_filedata_id : 1; // Legion(?)+: nameId is a file data id to directly load
-        uint16_t unused : 12;
+        uint16_t modf_entry_is_filedata_id : 1;               // Legion(?)+: unknown
+        uint16_t modf_unk_16 : 1;
+        uint16_t modf_unk_32 : 1;
+        uint16_t modf_unk_64 : 1;
+        uint16_t modf_use_sets_from_mwds : 1;
+
+        uint16_t unused : 8;
     } flags;
     uint16_t doodadSet;
     uint16_t nameSet;
@@ -127,18 +137,18 @@ struct SMChunk
 {
     struct
     {
-        uint32_t has_mcsh : 1;
-        uint32_t impass : 1;
-        uint32_t lq_river : 1;
-        uint32_t lq_ocean : 1;
-        uint32_t lq_magma : 1;
-        uint32_t lq_slime : 1;
-        uint32_t has_mccv : 1;
-        uint32_t unknown_0x80 : 1;
-        uint32_t unused1: 7;                                         // not set in 6.2.0.20338
-        uint32_t do_not_fix_alpha_map : 1;                    // "fix" alpha maps in MCAL (4 bit alpha maps are 63*63 instead of 64*64).
+        uint32_t has_mcsh : 1; //0x1
+        uint32_t impass : 1;   //0x2
+        uint32_t lq_river : 1; //0x4
+        uint32_t lq_ocean : 1; //0x8
+        uint32_t lq_magma : 1; //0x10
+        uint32_t lq_slime : 1; //0x20
+        uint32_t has_mccv : 1; //0x40
+        uint32_t unknown_0x80 : 1; //0x80
+        uint32_t unused1: 7;       //0x100, 0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000,                                    // not set in 6.2.0.20338
+        uint32_t do_not_fix_alpha_map : 1; //0x8000                   // "fix" alpha maps in MCAL (4 bit alpha maps are 63*63 instead of 64*64).
         // Note that this also means that it *has* to be 4 bit alpha maps, otherwise UnpackAlphaShadowBits will assert.
-        uint32_t high_res_holes : 1;                          // Since ~5.3 WoW uses full 64-bit to store holes for each tile if this flag is set.
+        uint32_t high_res_holes : 1;       //0x10000                  // Since ~5.3 WoW uses full 64-bit to store holes for each tile if this flag is set.
         uint32_t unused2: 15;                                        // not set in 6.2.0.20338
     } flags;
 
@@ -163,13 +173,13 @@ union{
 /*0x020*/  uint32_t ofsRefs;
 /*0x024*/  uint32_t ofsAlpha;
 /*0x028*/  uint32_t sizeAlpha;
-/*0x02C*/  uint32_t ofsShadow;                            // only with flags.has_mcsh
+/*0x02C*/  uint32_t ofsShadow;                           // only with flags.has_mcsh
 /*0x030*/  uint32_t sizeShadow;
 /*0x034*/  uint32_t areaid;                              // in alpha: both zone id and sub zone id, as uint16s.
 /*0x038*/  uint32_t nMapObjRefs;
 /*0x03C*/  uint16_t holes_low_res;
 /*0x03E*/  uint16_t unknown_but_used;                    // in alpha: padding
-/*0x040*/  uint16_t ReallyLowQualityTextureingMap[8];  // "predTex", It is used to determine which detail doodads to show. Values are an array of two bit unsigned integers, naming the layer.
+/*0x040*/  uint16_t ReallyLowQualityTextureingMap[8];    // "predTex", It is used to determine which detail doodads to show. Values are an array of two bit unsigned integers, naming the layer.
 /*0x050*/  uint64_t noEffectDoodad;                      // WoD: may be an explicit MCDD chunk
 /*0x058*/  uint32_t ofsSndEmitters;
 /*0x05C*/  uint32_t nSndEmitters;                        // will be set to 0 in the client if ofsSndEmitters doesn't point to MCSE!
@@ -184,6 +194,8 @@ union{
 /*0x07C*/  uint32_t unused;                              // currently unused
 /*0x080*/
 };
+
+static_assert(sizeof(SMChunk) == 128);
 
 struct MCVT {
     float height[9*9 + 8*8];
@@ -238,7 +250,7 @@ struct MCCV {
 
 struct SMNormal {
     struct MCNREntry {
-        int8_t normal[3];             // normalized. X, Z, Y. 127 == 1.0, -127 == -1.0.
+        uint8_t normal[3];             // normalized. X, Z, Y. 127 == 1.0, -127 == -1.0.
     } entries[9*9+8*8];
     //uint8_t unknown[3*3+2*2];       // this data is not included in the MCNR chunk but additional data which purpose is unknown. 0.5.3.3368 lists this as padding
     // always 0 112 245  18 0  8 0 0  0 84  245 18 0. Nobody yet found a different pattern. The data is not derived from the normals.
@@ -250,15 +262,15 @@ struct SMNormal {
 struct SMLayer
 {
     uint32_t textureId;
-    struct
+    struct MCAL_FLAG
     {
         uint32_t animation_rotation : 3;        // each tick is 45°
         uint32_t animation_speed : 3;
         uint32_t animation_enabled : 1;
         uint32_t overbright : 1;                // This will make the texture way brighter. Used for lava to make it "glow".
-        uint32_t use_alpha_map : 1;             // set for every layer after the first
-        uint32_t alpha_map_compressed : 1;      // see MCAL chunk description
-        uint32_t use_cube_map_reflection : 1;   // This makes the layer behave like its a reflection of the skybox. See below
+        uint32_t use_alpha_map : 1;             // 0x100, set for every layer after the first
+        uint32_t alpha_map_compressed : 1;      // 0x200, see MCAL chunk description
+        uint32_t use_cube_map_reflection : 1;   // 0x400, This makes the layer behave like its a reflection of the skybox. See below
         uint32_t unknown_0x800 : 1;             // WoD?+ if either of 0x800 or 0x1000 is set, texture effects' texture_scale is applied
         uint32_t unknown_0x1000 : 1;            // WoD?+ see 0x800
         uint32_t unused: 19;
@@ -300,6 +312,9 @@ struct MLND
     int16_t indices[4]; // indexes into MLND for child leaves
 };
 
-
+struct MWDR {
+    uint32_t begin; // Index into MWDS.
+    uint32_t end;   // inclusive: [7, 10] = MWDS[7] + MWDS[8] + MWDS[9] + MWDS[10]
+};
 
 #endif //WOWVIEWERLIB_ADTFILEHEADER_H

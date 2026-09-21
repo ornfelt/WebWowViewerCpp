@@ -38,7 +38,7 @@ struct SMOMaterial {
         uint32_t F_UNFOGGED : 1;                 // disable fog shading (rarely used)
         uint32_t F_UNCULLED : 1;                 // two-sided
         uint32_t F_EXTLIGHT : 1;                 // darkened, the intern face of windows are flagged 0x08
-        uint32_t F_SIDN : 1;                    // (bright at night, unshaded) (used on windows and lamps in Stormwind, for example) (see emissive color)
+        uint32_t F_SIDN : 1;                     // (bright at night, unshaded) (used on windows and lamps in Stormwind, for example) (see emissive color)
         uint32_t F_WINDOW : 1;                   // lighting related (flag checked in CMapObj::UpdateSceneMaterials)
         uint32_t F_CLAMP_S : 1;                  // tex clamp S (force this material's textures to use clamp s addressing)
         uint32_t F_CLAMP_T : 1;                  // tex clamp T (force this material's textures to use clamp t addressing)
@@ -200,35 +200,39 @@ struct SMODoodadDef
     /*003h*/  uint32_t flag_0x2 : 1;            // MapStaticEntity::field_34 |= 1 (if set, MapStaticEntity::AdjustLighting is _not_ called)
     /*003h*/  uint32_t flag_0x4 : 1;
     /*003h*/  uint32_t flag_0x8 : 1;
-    /*003h*/  uint32_t unused: 4;               // unused as of 7.0.1.20994
+    /*003h*/  uint32_t flag_0x10 : 1;
+    /*003h*/  uint32_t flag_0x20 : 1;
+    /*003h*/  uint32_t flag_0x40 : 1;
+    /*003h*/  uint32_t flag_0x80 : 1;
+
     /*004h*/  C3Vector position;                // (X,Z,-Y)
     /*010h*/  C4Quaternion orientation;         // (X, Y, Z, W)
     /*020h*/  float scale;                      // scale factor
     /*024h*/  CImVector color;                 // (B,G,R,A) diffuse lighting color, used in place of global diffuse from DBCs
+};
+
+struct SMOFog_Data {
+    /*018h*/    float end;
+    /*01Ch*/    float start_scalar;              // (0..1)
+    /*020h*/    CImVector color;
 };
 struct SMOFog
 {
     /*000h*/  uint32_t flag_infinite_radius : 1; // F_IEBLEND: Ignore radius in CWorldView::QueryCameraFog
     /*000h*/  uint32_t unused1: 3;                      // unused as of 7.0.1.20994
     /*000h*/  uint32_t flag_0x10 : 1;
-    /*000h*/  uint32_t unused2: 27;                     // unused as of 7.0.1.20994
+    /*000h*/  uint32_t unused2: 7;
+    /*000h*/  uint32_t flag_0x1000 : 1;                 // F_FOGVOLUME: fogs of the group are blended as weighted average (CWorldView::sub_14058DE30)
+    /*000h*/  uint32_t unused3: 3;
+    /*000h*/  uint32_t flag_0x10000 : 1;                // together with flag_0x1000 disables the WMO fog completely
+    /*000h*/  uint32_t unused4: 15;
     /*004h*/  C3Vector pos;
     /*010h*/  float smaller_radius;              // start
     /*014h*/  float larger_radius;               // end
-    struct
-    {
-        /*018h*/    float end;
-        /*01Ch*/    float start_scalar;              // (0..1)
-        /*020h*/    CImVector color;                // The back buffer is also cleared to this colour
-    } fog;
-    struct
-    {
-        /*024h*/    float end;
-        /*028h*/    float start_scalar;              // (0..1)
-        /*02Ch*/    CImVector color;
-    } underwater_fog;
+    SMOFog_Data fog;
+    SMOFog_Data underwater_fog;
 };
-
+static_assert(sizeof(SMOFog) == 0x30);
 
 
 struct MOGP {
@@ -262,6 +266,18 @@ struct MAVG {
     /*026h*/ char _0x26[10];
 };
 
+struct MAVD {
+    /*000h*/ C3Vector pos;
+    /*00Ch*/ float start;
+    /*010h*/ float end;
+    /*014h*/ CImVector color1;
+    /*018h*/ CImVector color2;
+    /*01Ch*/ CImVector color3;
+    /*020h*/ uint32_t flags;    // &1: use color1 and color3
+    /*024h*/ uint16_t doodadSetID;
+    /*026h*/ char _0x26[10];
+};
+
 struct SMOPoly
 {
     struct
@@ -284,17 +300,16 @@ struct SMOPoly
     uint8_t material_id;           // index into MOMT, 0xff for collision faces
 };
 
-
 struct SMOBatch
 {
     union {
         struct {
-        /*0x00*/ int16_t unknown_box_min[3];              // -2,-2,-1, 2,2,3 in cameron -> seems to be a bounding box for culling
-        /*0x06*/ int16_t unknown_box_max[3];
+            /*0x00*/ int16_t unknown_box_min[3];              // -2,-2,-1, 2,2,3 in cameron -> seems to be a bounding box for culling
+            /*0x06*/ int16_t unknown_box_max[3];
         } preLegion;
         struct {
-        /*0x00*/ uint8_t unknown[0xA];
-        /*0x0A*/ uint16_t material_id_large;              // used if flag_use_uint16_t_material is set.
+            /*0x00*/ uint8_t unknown[0xA];
+            /*0x0A*/ uint16_t material_id_large;              // used if flag_use_uint16_t_material is set.
         } postLegion;
     };
 
@@ -317,6 +332,24 @@ struct SMOBatch
 //#else
 };
 
+#pragma pack(push, 1)
+struct MOPY {
+    uint8_t flags;
+    uint8_t materialId;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(MOPY) == 2);
+
+#pragma pack(push, 1)
+struct MOPY2 {
+    uint16_t flags;
+    uint16_t materialId;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(MOPY2) == 4);
+
 struct t_BSP_NODE
 {
     uint16_t planeType;    // 4: leaf, 0 for YZ-plane, 1 for XZ-plane, 2 for XY-plane
@@ -326,15 +359,6 @@ struct t_BSP_NODE
     float    fDist;
 };
 
-struct MOLP {
-    float unk;
-    CArgb unk2;
-    C3Vector vec1;
-    C3Vector vec2;
-    float unk3;
-    unsigned int unk4;
-    CArgb unk5;
-};
 #pragma pack(push, 1)
 struct MLIQ {
     uint32_t xverts;
@@ -374,5 +398,111 @@ struct SMOLTile
     uint8_t flag_128 : 1;
     ;
 };
+
+//Light related structs
+
+struct LightUnkRecord
+{
+    int unk0;
+    int unk1;
+    int unk2;
+    int unk3;
+    int lightTextureFileDataId;
+    int unk5;
+    int unk6;
+    int unk7;
+    int unk8;
+    int unk9;
+};
+
+
+struct LightRecPerSet {
+    uint32_t offset;
+    uint32_t count;
+};
+
+//MOLP
+PACK(
+struct map_object_point_light {
+    uint32_t lightId;
+    CImVector color;
+    C3Vector position;
+    float attenuationStart;
+    float attenuationEnd;
+    float intensity;
+    C3Vector rotation;
+});
+
+//MOP2
+PACK(
+struct map_object_pointlight_anim
+{
+    map_object_point_light pointLight;
+    LightTextureAnimation lightTextureAnimation;
+    LightUnkRecord lightUnkRecord;
+});
+
+//MOLS
+PACK(
+struct map_object_spot_light {
+    uint32_t lightIndex;
+    uint32_t color;
+    C3Vector pos;
+    uint32_t attenuationStart;
+    float attenuationEnd;
+    uint32_t intesity;
+    C3Vector rotation;
+    uint32_t spotlightRadius; //A
+    float innerAngle;
+    float outerAngle;
+});
+
+//MOS2
+PACK(
+struct map_object_spotlight_anim
+{
+    map_object_spot_light spotLight;
+    LightTextureAnimation lightTextureAnimation;
+    LightUnkRecord lightUnkRecord;
+});
+
+//MNLD - lives in main WMO
+struct mapobject_new_light_def {
+    int type;
+    int lightIndex;
+    int flags;
+    int doodadSet;
+    CImVector innerColor;
+    C3Vector position;
+    C3Vector rotation;
+    float attenStart;
+    float attenEnd;
+    float intensity;
+    CImVector outerColor;
+    float blendStart;
+    float blendEnd;
+    int field_44;
+    LightTextureAnimation lightTextureAnimation;
+    LightUnkRecord lightUnkRecord;
+    float falloff;
+    float innerAngle;
+    float outerAngle;
+    uint16_t f16_scale;
+    uint16_t f16_intesityMultiplier;
+    int field_8C;
+    int field_90;
+    int field_94;
+    int field_98;
+    int field_9C;
+    int field_A0;
+    int field_A4;
+    int field_A8;
+    int field_AC;
+    int field_B0;
+    int field_B4;
+};
+
+static_assert(sizeof(mapobject_new_light_def) == 0xb8);
+
 
 #endif //WOWVIEWERLIB_WMOFILEHEADER_H

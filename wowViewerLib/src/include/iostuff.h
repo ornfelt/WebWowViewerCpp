@@ -26,6 +26,7 @@ enum class CacheHolderType {
     CACHE_GROUP_WMO,
     CACHE_ADT,
     CACHE_WDT,
+    CACHE_WDT_LIGHT,
     CACHE_WDL,
     CACHE_BLP,
     CACHE_DB2,
@@ -33,7 +34,7 @@ enum class CacheHolderType {
 
 class IFileRequest {
 public:
-    virtual void requestFile(std::string &fileName, CacheHolderType holderType, std::weak_ptr<PersistentFile> s_file) = 0;
+    virtual void requestFile(CacheHolderType holderType, std::weak_ptr<PersistentFile> s_file) = 0;
     virtual ~IFileRequest()= default;
 };
 

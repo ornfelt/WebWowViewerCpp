@@ -10,6 +10,8 @@
 #include "PersistentFile.h"
 #include <array>
 
+constexpr int MAX_MCLY_LAYERS = 8;
+
 struct mcnkStruct_t {
     MCVT *mcvt = nullptr;
     MCLV *mclv = nullptr;
@@ -33,13 +35,24 @@ struct mcnkStruct_t {
     int mcqlLen = 0;
 };
 
+struct MCAL_Offsets_Runtime {
+    bool needSecondAlphaTexture = 0;
+    int uncompressedIndex = 0;
+    std::array<uint8_t*, 8> alphaPtrs = {nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
+    std::array<SMLayer::MCAL_FLAG, 8> alphaFlags = {0,0,0,0,0,0,0,0};
+};
+
+bool isHoleLowRes(int hole, int i, int j) ;
+bool isHoleHighRes(uint64_t hole, int i, int j);
+
 class AdtFile: public PersistentFile {
 public:
-    AdtFile(std::string fileName){for (auto &mcnk: mcnkMap) {mcnk.fill(-1);}};
-    AdtFile(int fileDataId){for (auto &mcnk: mcnkMap) {mcnk.fill(-1);}};
+    AdtFile(std::string fileName) : PersistentFile(fileName) {for (auto &mcnk: mcnkMap) {mcnk.fill(-1);}};
+    AdtFile(int fileDataId) : PersistentFile(fileDataId) {for (auto &mcnk: mcnkMap) {mcnk.fill(-1);}};
 
-    void processTexture(const MPHDFlags &wdtObjFlags, int i, std::vector<uint8_t> &currentLayer);
-    void process(HFileContent adtFile, const std::string &fileName) override;
+    MCAL_Offsets_Runtime createAlphaTextureRuntime(int i);
+    void processAlphaTextureRow(MCAL_Offsets_Runtime &mcalRuntime, const MPHDFlags &wdtObjFlags, int i, uint8_t* __restrict currentLayer, uint32_t currentLayerSize);
+    void process(HFileContent adtFile) override;
     void setIsMain(bool isMain) { m_mainAdt = isMain; };
 public:
     SMMapHeader* mhdr = nullptr;
@@ -68,8 +81,7 @@ public:
     PointerChecker<SMTextureFlags> mtxf = mtxf_len;
     int mtxf_len = 0;
 
-    PointerChecker<char> mamp = mamp_len;
-    int mamp_len = 0;
+    uint8_t mamp_val = 0;
 
     PointerChecker<SMDoodadDef> doodadDef = doodadDef_len;
     int doodadDef_len = 0;
@@ -114,14 +126,17 @@ public:
     PointerChecker<uint32_t> mwid = mwid_length;
     int mwid_length = 0;
 
+    PointerChecker<MWDR> m_MWDR = m_MWDR_length;
+    int m_MWDR_length = 0;
+
+    PointerChecker<uint16_t> m_MWDS = m_MWDS_length;
+    int m_MWDS_length = 0;
+
     //Water
     M2HOHeader * mH2OHeader = nullptr;
     int mH2OblobOffset = 0;
     PointerChecker<char> mH2OBlob = mH2OBlob_len;
     int mH2OBlob_len = 0;
-
-
-
 
     int mcnkRead = -1;
     std::array<SMChunk, 16*16> mapTile;
@@ -130,6 +145,9 @@ public:
 
     std::vector<int16_t> strips;
     std::vector<int> stripOffsets;
+
+    std::vector<int16_t> stripsNoHoles;
+    std::vector<int> stripOffsetsNoHoles;
 private:
     bool m_mainAdt = false;
 

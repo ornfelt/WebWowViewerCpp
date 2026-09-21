@@ -16,10 +16,10 @@
 
 class WdlFile : public PersistentFile {
 public:
-    WdlFile(std::string fileName){};
-    WdlFile(int fileDataId){};
+    WdlFile(const std::string &fileName) : PersistentFile(fileName) {};
+    WdlFile(int fileDataId) : PersistentFile(fileDataId) {};
 
-    void process(HFileContent wdlFile, const std::string &fileName) override;
+    void process(HFileContent wdlFile) override;
 
 public:
     SMDoodadDef * doodadDefObj = nullptr;
@@ -36,6 +36,14 @@ public:
 
     mssc_t *m_mssc = nullptr;
     int m_mssc_len = -1;
+
+    uint32_t *m_msli = nullptr;
+    int m_msli_len = -1;
+
+    msld_t *m_msld = nullptr;
+    int m_msld_len = -1;
+
+    uint64_t *m_mssf = nullptr;
 
 private:
 

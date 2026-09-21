@@ -6,71 +6,41 @@
 #define AWEBWOWVIEWERCPP_GSHADERPERMUTATION_H
 
 #include <string>
+#include <array>
 #include <unordered_map>
-#include "../GDeviceVulkan.h"
+#include "GShaderPermutationVLKBase.h"
 #include "../../interface/IShaderPermutation.h"
-#include "../descriptorSets/GDescriptorSet.h"
-#include "../../../engine/shader/ShaderDefinitions.h"
 
-class GShaderPermutationVLK : public IShaderPermutation {
+
+class GShaderPermutationVLK : public GShaderPermutationVLKBase, public IShaderPermutation {
     friend class GDeviceVLK;
-
 public:
+    explicit GShaderPermutationVLK(const std::string &shaderVertName, const std::string &shaderFragName,
+                                   const std::shared_ptr<GDeviceVLK> &device, const ShaderConfig &shaderConf,
+                                   const std::unordered_map<int, const std::shared_ptr<GDescriptorSetLayout>> &dsLayoutOverrides);
     ~GShaderPermutationVLK() override {};
 
-    VkShaderModule getVertexModule() {return vertShaderModule;}
-    VkShaderModule getFragmentModule() {return fragShaderModule;}
-    VkDescriptorSetLayout getImageDescriptorLayout() {return imageDescriptorSetLayout;}
-    VkDescriptorSetLayout getUboDescriptorLayout() {return uboDescriptorSetLayout;}
-
-    virtual int getTextureBindingStart() = 0;
-    virtual int getTextureCount() = 0;
+    VkShaderModule getVertexModule() {
+        return vertShaderModule;
+    }
+    VkShaderModule getFragmentModule() {
+        return fragShaderModule;
+    }
 
     const shaderMetaData *fragShaderMeta;
     const shaderMetaData *vertShaderMeta;
 
-    std::string getShaderName() {
-        return m_shaderName;
-    }
-
 protected:
-    explicit GShaderPermutationVLK(std::string &shaderName, IDevice *device);
-    explicit GShaderPermutationVLK(std::string &shaderName, std::string &shaderVertName, std::string &shaderFragName, IDevice *device);
-
-    VkShaderModule createShaderModule(const std::vector<char>& code);
-
     void compileShader(const std::string &vertExtraDefStrings, const std::string &fragExtraDefStrings) override;
+    std::vector<const shaderMetaData *> createMetaArray() override;
 
-
-    VkShaderModule vertShaderModule;
-    VkShaderModule fragShaderModule;
-
-
-    VkDescriptorSetLayout uboDescriptorSetLayout;
-    VkDescriptorSetLayout imageDescriptorSetLayout;
-
-    std::vector<std::shared_ptr<GDescriptorSets>> uboDescriptorSets;
-
-    GDeviceVLK *m_device;
-
+    VkShaderModule vertShaderModule = VK_NULL_HANDLE;
+    VkShaderModule fragShaderModule = VK_NULL_HANDLE;
 
 private:
-    //Used only for logging
-    std::string m_shaderName;
-
-    //Used for getting SPIRV
+    ShaderConfig m_shaderConfig;
     std::string m_shaderNameVert;
     std::string m_shaderNameFrag;
-
-    void createUBODescriptorLayout();
-
-    void createImageDescriptorLayout();
-
-    void createUboDescriptorSets();
-
-    void updateDescriptorSet(int index);
-
-    std::vector<bool> hasBondUBO = std::vector<bool>(7, false);
 };
 
 

@@ -5,25 +5,41 @@
 #ifndef WEBWOWVIEWERCPP_CASCREQUESTPROCESSOR_H
 #define WEBWOWVIEWERCPP_CASCREQUESTPROCESSOR_H
 
-#include "RequestProcessor.h"
+#include "../../wowViewerLib/src/persistence/RequestProcessor.h"
+#include "StorageError.h"
+
+struct BuildDefinition;
 #include <iostream>
 
-#include "fileBrowser/buildDefinition.h"
+const std::string CASC_KEYS_FILE = "WoW.txt";
 
 class CascRequestProcessor : public RequestProcessor {
 public:
-    CascRequestProcessor(std::string &path, BuildDefinition &buildDef);
+    CascRequestProcessor(const std::string &path, const BuildDefinition &buildDef, StorageErrorCallback errorCallback = {});
     ~CascRequestProcessor() override;
+
+    void updateKeys();
+    bool isOpen() const { return m_isOpen; }
 private:
+    StorageErrorCallback m_errorCallback;
+    bool m_isOpen = false;
     std::string m_cascDir = "";
 
-    void* m_storage = nullptr;
-    void* m_storageOnline = nullptr;
+    std::function<HFileContent(const std::string &fileName, uint32_t fileDataId)> readFileContentLambda;
+    std::function<void(
+        std::function<bool (int fileDataId, const std::string &fileName)> &process,
+        std::function<void (int fileDataId, const HFileContent &fileData)> &callback
+    )> iterateFilesLambda;
+
 protected:
-    void processFileRequest(std::string &fileName, CacheHolderType holderType, std::weak_ptr<PersistentFile> s_file) override;
+    void processFileRequest(CacheHolderType holderType, const std::weak_ptr<PersistentFile> &s_file) override;
+    void iterateFilesInternal(
+        std::function<bool (int fileDataId, const std::string &fileName)> &process,
+        std::function<void (int fileDataId, const HFileContent &fileData)> &callback) override;
 private:
-    HFileContent tryGetFile(void *cascStorage, void *fileNameToPass, uint32_t openFlags);
     HFileContent tryGetFileFromOverrides(int fileDataId);
+
+    HFileContent readFileContent(const std::string &fileName, uint32_t fileDataId);
 };
 
 

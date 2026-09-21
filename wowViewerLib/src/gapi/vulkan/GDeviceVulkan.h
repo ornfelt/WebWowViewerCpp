@@ -9,23 +9,24 @@
 #include <unordered_map>
 #include <mutex>
 
-
-class GVertexBufferVLK;
 class GVertexBufferBindingsVLK;
-class GIndexBufferVLK;
-class GUniformBufferVLK;
 class GBlpTextureVLK;
 class GTextureVLK;
 class GShaderPermutationVLK;
+class GComputeShaderVLK;
 class GMeshVLK;
 class GM2MeshVLK;
-class GOcclusionQueryVLK;
-class GParticleMeshVLK;
 class GPipelineVLK;
+class GPipelineLayoutVLK;
+class ComputePipelineVLK;
 class GRenderPassVLK;
 class GDescriptorPoolVLK;
+class CmdBufRecorder;
+class RenderPassHelper;
+class TextureManagerVLK;
 
 typedef std::shared_ptr<GPipelineVLK> HPipelineVLK;
+typedef std::shared_ptr<ComputePipelineVLK> HComputePipelineVLK;
 
 class gMeshTemplate;
 
@@ -36,21 +37,21 @@ class gMeshTemplate;
 #include "descriptorSets/GDescriptorSet.h"
 #include "descriptorSets/GDescriptorPoolVLK.h"
 #include "../../engine/algorithms/FrameCounter.h"
+#include "../../renderer/IRenderParameters.h"
+#include "buffers/GBufferVLK.h"
+#include "IDeviceVulkan.h"
+#include "synchronization/GFenceVLK.h"
+#include "synchronization/GSemaphoreVLK.h"
+#include "commandBuffer/commandBufferRecorder/RenderPassHelper.h"
+#include "TextureManagerVLK.h"
+#include "shaders/ShaderConfig.h"
+#include "GDescriptorSetUpdater.h"
+
 #include <optional>
 
 VkSampleCountFlagBits sampleCountToVkSampleCountFlagBits(uint8_t sampleCount);
 
-class GDeviceVLK : public IDevice, public std::enable_shared_from_this<GDeviceVLK> {
-    struct QueueFamilyIndices {
-        std::optional<uint32_t> graphicsFamily;
-        std::optional<uint32_t> presentFamily;
-        std::optional<uint32_t> transferFamily;
-
-        bool isComplete() {
-            return graphicsFamily.has_value() && presentFamily.has_value();
-        }
-    };
-
+class GDeviceVLK : public IDevice, public std::enable_shared_from_this<GDeviceVLK>, public IDeviceVulkan {
     struct SwapChainSupportDetails {
         VkSurfaceCapabilitiesKHR capabilities;
         std::vector<VkSurfaceFormatKHR> formats;
@@ -58,20 +59,16 @@ class GDeviceVLK : public IDevice, public std::enable_shared_from_this<GDeviceVL
     };
 
 public:
-    enum class ViewportType {vp_none = -1, vp_usual = 0, vp_mapArea = 1, vp_skyBox = 2, vp_MAX = 3};
-
     explicit GDeviceVLK(vkCallInitCallback * callBacks);
-    ~GDeviceVLK() override = default;;
+    ~GDeviceVLK() override;
+
+    GDeviceType getDeviceType() override {return GDeviceType::GVulkan; };
 
     void initialize() override;
-
-    void reset() override;
+    std::unordered_set<std::string> get_enabled_extensions();
 
     unsigned int getFrameNumber() override { return m_frameNumber; };
-    unsigned int getUpdateFrameNumber() override;
-    unsigned int getCullingFrameNumber() override;
-    unsigned int getOcclusionFrameNumber() override;
-    unsigned int getDrawFrameNumber() override;
+    unsigned int getProcessingFrameNumber() override;
 
     bool getIsRenderbufferSupported() override {return true;}
 
@@ -79,147 +76,134 @@ public:
     bool getIsAsynBuffUploadSupported() override {
         return true;
     }
+    bool supportsBindless() override {
+        return m_supportsBindless;
+    }
+    bool supportsIndependentBlend() const {
+        return m_supportsIndependentBlend;
+    }
+    // Object-id selection needs the second (non-blended) forward attachment,
+    // which requires per-attachment blend state (independentBlend feature)
+    bool supportsSelection() override {
+        return m_supportsIndependentBlend;
+    }
+    // Batched vkCmdDrawIndexedIndirect (drawCount > 1) requires the multiDrawIndirect feature
+    bool supportsMultiDrawIndirect() const {
+        return m_supportsMultiDrawIndirect;
+    }
     int getMaxSamplesCnt() override;
     VkSampleCountFlagBits getMaxSamplesBit();
 
-    bool canUploadInSeparateThread() {
-        return uploadQueue != graphicsQueue;
-    }
-
-    HGTexture getBlackTexturePixel() override {
-        return m_blackPixelTexture;
-    }
-
+    bool getIsAnisFiltrationSupported() override;
+    bool getIsBCCompressedTexturesSupported() override;
     float getAnisLevel() override;
+    bool getIsConservativeRasterizationSupported();
+    bool getIsConditionalRenderingSupported() { return m_supportsConditionalRendering; }
 
-    void bindProgram(IShaderPermutation *program) override;
 
-    void bindIndexBuffer(IIndexBuffer *buffer) override;
-    void bindVertexBuffer(IVertexBuffer *buffer) override;
-    void bindUniformBuffer(IUniformBuffer *buffer, int slot, int offset, int length) override {};
-    void bindVertexBufferBindings(IVertexBufferBindings *buffer) override;
+    void drawFrame(const FrameRenderFuncs &renderFuncs, bool windowSizeChanged) override;
 
-    void bindTexture(ITexture *texture, int slot) override;
-
-    void startUpdateForNextFrame() override;
-    void endUpdateForNextFrame() override;
-
-    void updateBuffers(std::vector<std::vector<HGUniformBufferChunk>*> &bufferChunks, std::vector<HFrameDepedantData> &frameDepedantData) override;
-    void uploadTextureForMeshes(std::vector<HGMesh> &meshes) override;
-    void drawMeshes(std::vector<HGMesh> &meshes) override;
-    void drawStageAndDeps(HDrawStage drawStage) override;
-    bool wasTexturesUploaded() override {
-        return m_texturesWereUploaded;
-    };
-
-    //    void drawM2Meshes(std::vector<HGM2Mesh> &meshes);
     bool getIsVulkanAxisSystem() override {return true;}
 
-    void initUploadThread() override;
-public:
-    double getWaitForUpdate() override {
-        return this->waitInDrawStageAndDeps.getTimePerFrame();
+    void flushRingBuffer();
+
+    const QueueFamilyIndices &getQueueFamilyIndices() override {
+        return indices;
     }
+public:
+    std::shared_ptr<IShaderPermutation> getShader(const std::string &vertexName, const std::string &fragmentName,
+                                                  const ShaderConfig &shaderConf,
+                                                  const std::unordered_map<int, const std::shared_ptr<GDescriptorSetLayout>> &dsLayoutOverrides);
 
-    std::shared_ptr<IShaderPermutation> getShader(std::string shaderName, void *permutationDescriptor) override;
-
-    HGUniformBuffer createUniformBuffer(size_t size) override;
-    HGVertexBuffer createVertexBuffer() override;
-    HGVertexBufferDynamic createVertexBufferDynamic(size_t size) override;
-    HGIndexBuffer createIndexBuffer() override;
+    HGBufferVLK createUniformBuffer(const std::string &objName, size_t size);
+    HGBufferVLK createSSBOBuffer(const std::string &objName, size_t size, int recordSize, VkBufferUsageFlags additionalFlags = 0);
+    HGBufferVLK createVertexBuffer(const std::string &objName, size_t size, int recordSize = -1);
+    HGBufferVLK createIndexBuffer(const std::string &objName, size_t size);
     HGVertexBufferBindings createVertexBufferBindings() override;
 
-    int getUploadSize() override {
-        return m_uniformDataForUpload;
-    }
+    std::shared_ptr<ITextureSampler> getSampler(bool xWrapTex, bool yWrapTex, bool nearest);
+    HGSamplableTexture createBlpTexture(HBlpTexture &texture, bool xWrapTex, bool yWrapTex) override;
+    HGSamplableTexture createTexture(bool xWrapTex, bool yWrapTex) override;
+    HGSamplableTexture createSampledTexture(HGTexture texture, bool xWrapTex, bool yWrapTex) override;
+    HGSamplableTexture getWhiteTexturePixel() override { return m_whitePixelTexture; };
+    HGSamplableTexture getBlackTexturePixel() override { return m_blackPixelTexture; };
+    HGSamplableTexture getEmptyDepthTexture() override { return m_emptyDepthTexture; };
 
-    HGTexture createBlpTexture(HBlpTexture &texture, bool xWrapTex, bool yWrapTex) override;
-    HGTexture createTexture(bool xWrapTex, bool yWrapTex) override;
-    HGTexture getWhiteTexturePixel() override { return m_whitePixelTexture; };
+    std::shared_ptr<GDescriptorSetUpdater> getDescriptorSetUpdater() override { return m_descriptorSetUpdater;};
+
     HGMesh createMesh(gMeshTemplate &meshTemplate) override;
-    HGM2Mesh createM2Mesh(gMeshTemplate &meshTemplate) override;
-    HGParticleMesh createParticleMesh(gMeshTemplate &meshTemplate) override;
+
     HGPUFence createFence() override;
 
-    HFrameBuffer createFrameBuffer(int width, int height, std::vector<ITextureFormat> attachments, ITextureFormat depthAttachment, int multiSampleCnt, int frameNumber) override ;
+    // Reusable secondary command buffer allocated from the graphics command pool.
+    // Must be recorded on the render thread only (the pool is not externally synchronized).
+    std::shared_ptr<GCommandBuffer> createSecondaryCommandBuffer();
 
-    HPipelineVLK createPipeline(HGVertexBufferBindings m_bindings,
-                                HGShaderPermutation shader,
-                                std::shared_ptr<GRenderPassVLK> renderPass,
+
+
+    HPipelineVLK createPipeline(const HGVertexBufferBindings &m_bindings,
+                                const HGShaderPermutation &shader,
+                                const std::shared_ptr<GPipelineLayoutVLK> &pipelineLayout,
+                                const std::shared_ptr<GRenderPassVLK> &renderPass,
                                 DrawElementMode element,
-                                int8_t backFaceCulling,
-                                int8_t triCCW,
+                                bool backFaceCulling,
+                                bool triCCW,
                                 EGxBlendEnum blendMode,
-                                int8_t depthCulling,
-                                int8_t depthWrite,
-                                bool invertZ);
+                                bool depthCulling,
+                                bool depthWrite,
+                                uint8_t colorMask,
+                                bool stencilTestEnable,
+                                bool stencilWrite,
+                                uint8_t stencilWriteVal,
+                                const std::vector<uint8_t> &specializationConstantsData = {},
+                                const std::vector<VkSpecializationMapEntry> &specializationConstantsMetadata = {});
 
-    std::shared_ptr<GRenderPassVLK> getRenderPass(std::vector<ITextureFormat> textureAttachments,
+    HComputePipelineVLK createComputePipeline(const std::shared_ptr<GComputeShaderVLK> &shader,
+                                              const std::shared_ptr<GPipelineLayoutVLK> &pipelineLayout);
+
+    std::shared_ptr<GRenderPassVLK> getRenderPass(const std::vector<ITextureFormat> &textureAttachments,
                                                   ITextureFormat depthAttachment,
                                                   VkSampleCountFlagBits sampleCountFlagBits,
-                                                  bool isSwapChainPass);
+                                                  bool invertZ,
+                                                  bool isSwapChainPass,
+                                                  bool clearColor,
+                                                  bool clearDepth);
 
-    HGOcclusionQuery createQuery(HGMesh boundingBoxMesh) override;
+    std::shared_ptr<GRenderPassVLK> getSwapChainRenderPass();
 
-    HGVertexBufferBindings getBBVertexBinding() override;
-    HGVertexBufferBindings getBBLinearBinding() override;
+    void setObjectName(uint64_t object, VkObjectType objectType, const std::string &name) override;
 
-    std::string loadShader(std::string fileName, IShaderType shaderType) override;
+    void submitDrawCommands() override;
+    void submitQueue(
+        VkQueue queue,
+        const std::vector<VkSemaphore> &waitSemaphores,
+        const std::vector<VkPipelineStageFlags> &waitStages,
+        const std::vector<VkCommandBuffer> &commandBuffers,
+        const std::vector<VkSemaphore> &signalSemaphoresOnCompletion,
+        const VkFence signalFenceOnCompletion) ;
 
-    virtual void clearScreen() override;
-    virtual void beginFrame() override;
-    virtual void commitFrame() override;
+    void presentQueue(const std::vector<VkSemaphore> &waitSemaphores,
+                      const std::vector<VkSwapchainKHR> &swapchains,
+                      const std::vector<uint32_t> &imageIndexes);
 
-    virtual void setClearScreenColor(float r, float g, float b) override;
-    virtual void setViewPortDimensions(float x, float y, float width, float height) override;
-    void setInvertZ(bool value) override {m_isInvertZ = true;};
-    bool getInvertZ()  { return m_isInvertZ;};
+    VkDescriptorSet allocateDescriptorSetPrimitive(
+        const std::shared_ptr<GDescriptorSetLayout> &hDescriptorSetLayout,
+        std::shared_ptr<GDescriptorPoolVLK> &out_desciptorPool) override;
 
+    std::shared_ptr<GDescriptorSet> createDescriptorSet(std::shared_ptr<GDescriptorSetLayout> &hDescriptorSetLayout);
 
-    std::shared_ptr<GDescriptorSets> createDescriptorSet(VkDescriptorSetLayout layout, int uniforms, int images);
-
-    virtual VkDevice getVkDevice() {
+    virtual VkDevice getVkDevice() override {
         return device;
     };
-    virtual VkPhysicalDevice getVkPhysicalDevice() {
+    virtual VkPhysicalDevice getVkPhysicalDevice() override {
         return physicalDevice;
     };
     virtual VkExtent2D getCurrentExtent() {
         return swapChainExtent;
     };
 
-    //    int currentFrameSemaphore = 0;
-    bool framebufferResized = false;
-
-    VmaAllocator getVMAAllocator() {
+    VmaAllocator getVMAAllocator() override {
         return vmaAllocator;
-    }
-
-    VmaPool getUBOPool() {
-        return uboVmaPool;
-    }
-
-    VkCommandBuffer getUploadCommandBuffer() {
-        int uploadFrame = getUpdateFrameNumber();
-        return uploadCommandBuffers[uploadFrame];
-    }
-
-    HGUniformBuffer getUploadBuffer(int index) {
-        return m_UBOFrames[index].m_uniformBufferForUpload;
-    }
-
-    VkCommandBuffer getTextureTransferCommandBuffer() {
-        int uploadFrame = getUpdateFrameNumber();
-        return textureTransferCommandBuffers[uploadFrame];
-    }
-
-    void signalTextureTransferCommandRecorded() {
-        int uploadFrame = getUpdateFrameNumber();
-        textureTransferCommandBufferNull[uploadFrame] = false;
-    }
-
-    QueueFamilyIndices getQueueFamilyIndices() {
-        return indices;
     }
 
     struct DeallocationRecord {
@@ -227,240 +211,291 @@ public:
         std::function<void()> callback;
     };
 
-    std::mutex m_listOfDeallocatorsAccessMtx;
-
     void addDeallocationRecord(std::function<void()> callback) override {
         std::lock_guard<std::mutex> lock(m_listOfDeallocatorsAccessMtx);
         DeallocationRecord dr;
-        dr.frameNumberToDoAt = m_frameNumber+4;
+        dr.frameNumberToDoAt = m_frameNumber+MAX_FRAMES_IN_FLIGHT;
         dr.callback = callback;
         listOfDeallocators.push_back(dr);
     };
 
+
     VkFormat findDepthFormat();
 
     void singleExecuteAndWait(std::function<void(VkCommandBuffer commandBuffer)> callback);
+    void waitForAllWorkToComplete() override;
+    std::shared_ptr<IRenderDocCaptureHandler> getRenderDocHelper() override;
+    
+    void clear() override;
 private:
-    void drawMesh(HGMesh &hmesh);
-    void internalDrawStageAndDeps(HDrawStage drawStage);
+//    void internalDrawStageAndDeps(HDrawStage drawStage);
 
     void setupDebugMessenger();
     void pickPhysicalDevice();
     void createLogicalDevice();
     bool isDeviceSuitable(VkPhysicalDevice device);
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
+    void findQueueFamilies(VkPhysicalDevice device);
     SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
-    void createSwapChain();
-    void createImageViews();
-    void createFramebuffers();
-    void createRenderPass();
 
-    void recreateSwapChain();
+
+    void createSwapChainAndFramebuffer();
+    void createSwapChain(SwapChainSupportDetails &swapChainSupport, VkSurfaceFormatKHR &surfaceFormat, VkExtent2D &extent);
+    void createSwapChainImageViews(std::vector<VkImage> &swapChainImages, std::vector<VkImageView> &swapChainImageViews, VkFormat swapChainImageFormat);
+
+    void createSwapChainRenderPass(VkFormat swapChainImageFormat);
+
+    void createFramebuffers(std::vector<HGTextureVLK> &swapChainTextures, VkExtent2D &extent);
 
     void createCommandPool();
     void createCommandPoolForUpload();
     void createCommandBuffers();
-    void createCommandBuffersForUpload();
     void createSyncObjects();
 
-    void createColorResources();
-    void createDepthResources();
+    uint32_t m_vulkanApiVersion = VK_API_VERSION_1_0;
 
-
-
-    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
-    void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory, VkImageLayout vkLaylout);
-    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
-
-    bool drawMeshesInternal(
-        const HDrawStage &drawStage,
-        VkCommandBuffer commandBufferForFilling,
-        std::shared_ptr<GRenderPassVLK> renderPass,
-        const HMeshesToRender &iMeshes,
-        const std::array<VkViewport, (int) ViewportType::vp_MAX> &viewportsForThisStage,
-        VkRect2D &defaultScissor);
+    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features) override;
 
 protected:
-    struct BlpCacheRecord {
-        BlpTexture* texture;
-        bool wrapX;
-        bool wrapY;
-
-        bool operator==(const BlpCacheRecord &other) const {
-            return
-                (texture == other.texture) &&
-                (wrapX == other.wrapX) &&
-                (wrapY == other.wrapY);
-
-        };
-    };
-    struct BlpCacheRecordHasher {
-        std::size_t operator()(const BlpCacheRecord& k) const {
-            using std::hash;
-            return hash<void*>{}(k.texture) ^ (hash<bool>{}(k.wrapX) << 8) ^ (hash<bool>{}(k.wrapY) << 16);
-        };
-    };
-    std::unordered_map<BlpCacheRecord, std::weak_ptr<GTextureVLK>, BlpCacheRecordHasher> loadedTextureCache;
-
     struct PipelineCacheRecord {
         HGShaderPermutation shader;
-        std::shared_ptr<GRenderPassVLK> renderPass;
+        wtf::KeyContainer<std::weak_ptr<GRenderPassVLK>> renderPass;
+        wtf::KeyContainer<std::weak_ptr<GPipelineLayoutVLK>> pipelineLayout;
         DrawElementMode element;
-        int8_t backFaceCulling;
-        int8_t triCCW;
+        bool backFaceCulling;
+        bool triCCW;
         EGxBlendEnum blendMode;
-        int8_t depthCulling;
-        int8_t depthWrite;
-        bool invertZ;
+        bool depthCulling;
+        bool depthWrite;
+        uint8_t colorMask;
+        bool stencilTestEnable;
+        bool stencilWrite;
+        uint8_t stencilWriteVal;
+        std::vector<uint8_t> specializationConstantsData;
+        std::vector<VkSpecializationMapEntry> specializationConstantsMetadata;
 
 
         bool operator==(const PipelineCacheRecord &other) const {
-            return
-                (shader == other.shader) &&
-                (renderPass == other.renderPass) &&
-                (element == other.element) &&
-                (backFaceCulling == other.backFaceCulling) &&
-                (triCCW == other.triCCW) &&
-                (blendMode == other.blendMode) &&
-                (depthCulling == other.depthCulling) &&
-                (depthWrite == other.depthWrite) &&
-                (invertZ == other.invertZ);
+            if (!(shader == other.shader) ||
+                !(renderPass == other.renderPass) ||
+                (element != other.element) ||
+                (backFaceCulling != other.backFaceCulling) ||
+                (triCCW != other.triCCW) ||
+                (blendMode != other.blendMode) ||
+                (depthCulling != other.depthCulling) ||
+                (depthWrite != other.depthWrite) ||
+                (colorMask != other.colorMask) ||
+                (stencilTestEnable != other.stencilTestEnable) ||
+                (stencilWrite != other.stencilWrite) ||
+                (stencilWriteVal != other.stencilWriteVal)) {
+                return false;
+            }
 
+            // Compare specialization constants data
+            if (specializationConstantsData.size() != other.specializationConstantsData.size()) return false;
+            if (!specializationConstantsData.empty() &&
+                std::memcmp(specializationConstantsData.data(), other.specializationConstantsData.data(),
+                           specializationConstantsData.size()) != 0) {
+                return false;
+            }
+
+            // Compare specialization constants metadata
+            if (specializationConstantsMetadata.size() != other.specializationConstantsMetadata.size()) return false;
+            for (size_t i = 0; i < specializationConstantsMetadata.size(); i++) {
+                if (specializationConstantsMetadata[i].constantID != other.specializationConstantsMetadata[i].constantID ||
+                    specializationConstantsMetadata[i].offset != other.specializationConstantsMetadata[i].offset ||
+                    specializationConstantsMetadata[i].size != other.specializationConstantsMetadata[i].size) {
+                    return false;
+                }
+            }
+
+            return true;
         };
     };
     struct PipelineCacheRecordHasher {
         std::size_t operator()(const PipelineCacheRecord& k) const {
             using std::hash;
-            return hash<void*>{}(k.shader.get()) ^
-            hash<void*>{}(k.renderPass.get()) ^
-            (hash<int8_t >{}(k.backFaceCulling) << 2) ^
-            (hash<int8_t >{}(k.triCCW) << 4) ^
-            (hash<int8_t >{}(k.depthCulling) << 8) ^
-            (hash<int8_t >{}(k.depthWrite) << 10) ^
-            (hash<EGxBlendEnum>{}(k.blendMode) << 16) ^
-            (hash<DrawElementMode>{}(k.element) << 24);
+            std::size_t h = hash<void*>{}(k.shader.get()) ^
+            hash<decltype(k.renderPass)>{}(k.renderPass) ^
+            (hash<bool >{}(k.backFaceCulling) << 2) ^
+            (hash<bool >{}(k.triCCW) << 4) ^
+            (hash<bool >{}(k.depthCulling) << 8) ^
+            (hash<bool >{}(k.depthWrite) << 10) ^
+            (hash<EGxBlendEnum>{}(k.blendMode) << 14) ^
+            (hash<DrawElementMode>{}(k.element) << 16) ^
+            (hash<uint8_t>{}(k.colorMask) << 18) ^
+            (hash<uint8_t>{}(k.stencilWriteVal) << 7) ^
+            (hash<bool>{}(k.stencilTestEnable) << 15) ^
+            (hash<bool>{}(k.stencilWrite) << 11);
+
+            // Hash specialization constants data buffer
+            if (!k.specializationConstantsData.empty()) {
+                // Use FNV-1a hash for byte buffer
+                std::size_t dataHash = 2166136261u;
+                for (uint8_t byte : k.specializationConstantsData) {
+                    dataHash ^= byte;
+                    dataHash *= 16777619u;
+                }
+                h ^= dataHash;
+            }
+
+            // Hash specialization constants metadata
+            for (const auto& entry : k.specializationConstantsMetadata) {
+                h ^= (hash<uint32_t>{}(entry.constantID) << 1) ^
+                     (hash<uint32_t>{}(entry.offset) << 3) ^
+                     (hash<size_t>{}(entry.size) << 5);
+            }
+
+            return h;
         };
     };
     std::unordered_map<PipelineCacheRecord, std::weak_ptr<GPipelineVLK>, PipelineCacheRecordHasher> loadedPipeLines;
 
+    struct ComputePipelineCacheRecord {
+        std::shared_ptr<GComputeShaderVLK> shader;
+        wtf::KeyContainer<std::weak_ptr<GPipelineLayoutVLK>> pipelineLayout;
+
+        bool operator==(const ComputePipelineCacheRecord &other) const {
+            return (shader == other.shader) &&
+                   (pipelineLayout == other.pipelineLayout);
+        };
+    };
+    struct ComputePipelineCacheRecordHasher {
+        std::size_t operator()(const ComputePipelineCacheRecord &k) const {
+            using std::hash;
+            return hash<void *>{}(k.shader.get()) ^
+                   (hash<decltype(k.pipelineLayout)>{}(k.pipelineLayout) << 3);
+        };
+    };
+    std::unordered_map<ComputePipelineCacheRecord, std::weak_ptr<ComputePipelineVLK>, ComputePipelineCacheRecordHasher> m_loadedComputePipelines;
+
     VkDebugUtilsMessengerEXT debugMessenger;
 
     int threadCount = 1;
-    FrameCounter waitInDrawStageAndDeps;
 
     QueueFamilyIndices indices;
     VkInstance vkInstance;
-    VkSurfaceKHR vkSurface;
-    bool enableValidationLayers = true ;
+    VkSurfaceKHR vkSurface = VK_NULL_HANDLE;
+
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device;
+
+    bool m_debugUtilsAvailable = false;
 
     VkQueue graphicsQueue;
     VkQueue uploadQueue;
 
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;
-    std::vector<VkImage> swapChainImages;
-    VkFormat swapChainImageFormat;
+
     VkExtent2D swapChainExtent;
-    std::vector<VkImageView> swapChainImageViews;
-    std::vector<VkFramebuffer> swapChainFramebuffers;
+
+    std::vector<std::shared_ptr<GFrameBufferVLK>> swapChainFramebuffers;
 
     std::shared_ptr<GRenderPassVLK> swapchainRenderPass;
-
 
     VkCommandPool commandPool;
     VkCommandPool commandPoolForImageTransfer;
     VkCommandPool renderCommandPool;
     VkCommandPool uploadCommandPool;
 
-    VkImage depthImage;
-    VkDeviceMemory depthImageMemory;
-    VkImageView depthImageView;
+    std::array<std::shared_ptr<GCommandBuffer>, MAX_FRAMES_IN_FLIGHT> fbCommandBuffers = {nullptr};
+    std::array<std::shared_ptr<GCommandBuffer>, MAX_FRAMES_IN_FLIGHT> swapChainCommandBuffers = {nullptr};
+    std::array<std::shared_ptr<GCommandBuffer>, MAX_FRAMES_IN_FLIGHT> uploadCommandBuffers = {nullptr};
 
-    std::vector<VkCommandBuffer> commandBuffers;
-    std::vector<VkCommandBuffer> renderCommandBuffers;
-    std::vector<bool> renderCommandBuffersNotNull;
-    std::vector<VkCommandBuffer> renderCommandBuffersForFrameBuffers;
-    std::vector<bool> renderCommandBuffersForFrameBuffersNotNull;
-    std::vector<VkCommandBuffer> uploadCommandBuffers;
-    std::vector<VkCommandBuffer> textureTransferCommandBuffers;
-    std::vector<bool> textureTransferCommandBufferNull;
 
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkSemaphore> textureTransferFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    std::vector<VkFence> inFlightTextureTransferFences;
-    std::vector<bool> uploadSemaphoresSubmited;
-    std::vector<VkSemaphore> uploadSemaphores;
-    std::vector<VkFence> uploadFences;
+    std::array<std::shared_ptr<GFenceVLK>, MAX_FRAMES_IN_FLIGHT> inFlightFences;
+    std::array<std::shared_ptr<GFenceVLK>, MAX_FRAMES_IN_FLIGHT> frameBufFences;
+    std::array<std::shared_ptr<GFenceVLK>, MAX_FRAMES_IN_FLIGHT> uploadFences;
 
-    std::vector<GDescriptorPoolVLK*> m_descriptorPools;
+    std::array<std::shared_ptr<GSemaphoreVLK>, MAX_FRAMES_IN_FLIGHT> imageAvailableSemaphores;
+    // Is used to signal for present queue that frame has finished rendering and it can be presented on screen
+    std::array<std::shared_ptr<GSemaphoreVLK>, MAX_FRAMES_IN_FLIGHT> renderFinishedSemaphores;
+
+    std::array<std::shared_ptr<GSemaphoreVLK>, MAX_FRAMES_IN_FLIGHT> uploadSemaphores;
+    std::array<std::shared_ptr<GSemaphoreVLK>, MAX_FRAMES_IN_FLIGHT> frameBufSemaphores;
+    std::array<bool, MAX_FRAMES_IN_FLIGHT> firstTimeRender;
+
+    std::vector<std::shared_ptr<GDescriptorPoolVLK>> m_descriptorPools;
+    std::vector<std::shared_ptr<GDescriptorPoolVLK>> m_bindlessDescriptorPools;
 
     VmaAllocator vmaAllocator;
-    VmaPool uboVmaPool;
-
 
     VkPhysicalDeviceProperties deviceProperties;
-
-    float clearColor[3] = {0,0,0};
-
+    VkPhysicalDeviceFeatures supportedFeatures;
 
     unsigned int m_frameNumber = 0;
     bool m_firstFrame = true;
     bool m_shaderDescriptorUpdateNeeded = false;
 
-
-    uint8_t m_lastColorMask = 0xFF;
-    int8_t m_lastDepthWrite = -1;
-    int8_t m_lastDepthCulling = -1;
-    int8_t m_backFaceCulling = -1;
-    int8_t m_triCCW = -1;
     int maxUniformBufferSize = -1;
     int uniformBufferOffsetAlign = -1;
+    int ssboBufferOffsetAlign = -1;
     int maxMultiSample = -1;
-    float m_anisotropicLevel = 0.0;
-    bool m_isInvertZ = false;
-    EGxBlendEnum m_lastBlendMode = EGxBlendEnum::GxBlend_UNDEFINED;
-    GIndexBufferVLK *m_lastBindIndexBuffer = nullptr;
-    GVertexBufferVLK *m_lastBindVertexBuffer = nullptr;
-    GVertexBufferBindingsVLK *m_vertexBufferBindings = nullptr;
-    GShaderPermutationVLK * m_shaderPermutation = nullptr;
+    bool m_supportsBindless = false;
+    bool m_supportsConservativeRasterization = false;
+    bool m_supportsConditionalRendering = false;
+    bool m_supportsIndependentBlend = false;
+    bool m_supportsMultiDrawIndirect = false;
+
 
     HGVertexBufferBindings m_vertexBBBindings;
     HGVertexBufferBindings m_lineBBBindings;
     HGVertexBufferBindings m_defaultVao;
 
-    GTextureVLK *m_lastTexture[10] = {
-        nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,
-        nullptr};
+    std::shared_ptr<GStagingRingBuffer> m_ringBuffer;
 
-    GUniformBufferVLK * m_vertexUniformBuffer[3] = {nullptr};
-    GUniformBufferVLK * m_fragmentUniformBuffer[3] = {nullptr};
+    HGSamplableTexture m_blackPixelTexture = nullptr;
+    HGSamplableTexture m_whitePixelTexture = nullptr;
+    HGSamplableTexture m_emptyDepthTexture = nullptr;
 
-    HGTexture m_blackPixelTexture = nullptr;
-    HGTexture m_whitePixelTexture = nullptr;
-
-    bool m_texturesWereUploaded = false;
+    std::shared_ptr<TextureManagerVLK> m_textureManager;
+    std::shared_ptr<GDescriptorSetUpdater> m_descriptorSetUpdater;
 protected:
     //Caches
-    std::unordered_map<size_t, HGShaderPermutation> m_shaderPermutCache;
-    std::list<std::weak_ptr<GUniformBufferVLK>> m_unfiormBufferCache;
-    struct FrameUniformBuffers {
-        HGUniformBuffer m_uniformBufferForUpload;
-    };
 
-    std::array<FrameUniformBuffers, 4> m_UBOFrames;
+    struct ShaderPermutationCacheRecord {
+        std::string name;
+        ShaderConfig shaderConfig;
+        std::unordered_map<int, VkDescriptorSetLayout> dsLayoutOverrides;
+
+        bool operator==(const ShaderPermutationCacheRecord &other) const {
+            return
+                (name == other.name) &&
+                (shaderConfig.vertexShaderFolder == other.shaderConfig.vertexShaderFolder) &&
+                (shaderConfig.fragmentShaderFolder == other.shaderConfig.fragmentShaderFolder) &&
+                (shaderConfig.typeOverrides == other.shaderConfig.typeOverrides) &&
+                (dsLayoutOverrides == other.dsLayoutOverrides);
+        };
+    };
+    struct ShaderPermutationRecordHasher {
+        std::size_t operator()(const ShaderPermutationCacheRecord& k) const {
+            using std::hash;
+
+            size_t mapHash = hash<std::string>{}(k.shaderConfig.vertexShaderFolder) ^
+                             hash<std::string>{}(k.shaderConfig.fragmentShaderFolder);
+            for (const auto &rec : k.shaderConfig.typeOverrides)
+                for (const auto &rec2 : rec.second)
+                    mapHash ^=
+                        hash<int>{}(rec2.second.type) << 4 ^
+                        hash<bool>{}(rec2.second.isBindless) << 8 ^
+                        hash<int>{}(rec2.second.descriptorCount) << 10 ^
+                        hash<int>{}(rec2.first) << 12 ^
+                        hash<int>{}(rec.first) << 16;
+
+            for (const auto &rec : k.dsLayoutOverrides)
+                mapHash ^=
+                        hash<int>{}(rec.first) << 4 ^
+                        hash<VkDescriptorSetLayout>{}(rec.second) << 8;
+
+            return hash<std::string>{}(k.name) ^ mapHash;
+
+        };
+    };
+    std::unordered_map<ShaderPermutationCacheRecord, HGShaderPermutation, ShaderPermutationRecordHasher> m_shaderPermuteCache;
 
     std::vector<char> aggregationBufferForUpload = std::vector<char>(1024*1024);
-    int m_uniformDataForUpload = 0;
 
+    std::mutex m_listOfDeallocatorsAccessMtx;
     std::list<DeallocationRecord> listOfDeallocators;
-
-    int uniformBuffersCreated = 0;
-    bool attachmentsReady = false;
-
-    std::vector<FramebufAvalabilityStruct> m_createdFrameBuffers;
 
     struct RenderPassAvalabilityStruct {
         std::vector<ITextureFormat> attachments;
@@ -468,12 +503,21 @@ protected:
         std::shared_ptr<GRenderPassVLK> renderPass;
         VkSampleCountFlagBits sampleCountFlagBits;
         bool isSwapChainPass;
+        bool invertZ;
+        bool clearColor;
+        bool clearDepth;
     };
 
     std::vector<RenderPassAvalabilityStruct> m_createdRenderPasses;
+
+    void executeDeallocators(bool forceDealloc);
+
+    RenderPassHelper beginSwapChainRenderPass(uint32_t imageIndex, CmdBufRecorder &swapChainCmd);
+
+    void getNextSwapImageIndex(uint32_t &imageIndex);
 };
 
-
+extern bool vulkanEnableValidationLayers;
 
 
 #endif //AWEBWOWVIEWERCPP_GDEVICEVULKAN_H

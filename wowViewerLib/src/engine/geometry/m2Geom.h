@@ -17,7 +17,7 @@
 
 class M2Geom : public PersistentFile {
 public:
-    M2Geom(std::string fileName){
+    M2Geom(std::string fileName) : PersistentFile(fileName) {
         std::string delimiter = ".";
         std::string nameTemplate = fileName.substr(0, fileName.find_last_of(delimiter));
         std::string modelFileName = nameTemplate + ".m2";
@@ -25,23 +25,26 @@ public:
         this->m_modelName = modelFileName;
         this->m_nameTemplate= nameTemplate;
     };
-    M2Geom(int fileDataId){
+    M2Geom(int fileDataId) : PersistentFile(fileDataId) {
         useFileId = true;
         m_modelFileId = fileDataId;
     };
+    ~M2Geom();
 
     std::string getName() {
         return m_modelName;
     }
 
-    void process(HFileContent m2File, const std::string &fileName) override;
-    HGVertexBuffer getVBO(const HGDevice &device);
-    HGVertexBufferBindings getVAO(const HGDevice& device, SkinGeom *skinGeom);
-    std::array<HGVertexBufferBindings, 4> createDynamicVao(IDevice &device, std::array<HGVertexBufferDynamic, 4> &dynVBOs,
-                                                               SkinGeom *skinGeom, M2SkinSection *skinSection);
+    void process(HFileContent m2File) override;
+    HGVertexBuffer getVBO(const HMapSceneBufferCreate &sceneRenderer);
+    HGVertexBufferBindings getVAO(const HMapSceneBufferCreate &sceneRenderer, SkinGeom *skinGeom);
+    std::array<HGVertexBufferBindings, IDevice::MAX_FRAMES_IN_FLIGHT>
+        createDynamicVao(const HMapSceneBufferCreate &sceneRenderer,
+                         std::array<HGVertexBufferDynamic, IDevice::MAX_FRAMES_IN_FLIGHT> &dynVBOs,
+                         SkinGeom *skinGeom, M2SkinSection *skinSection);
     void loadLowPriority(const HApiContainer& m_api, uint32_t animationId, uint32_t subAnimationId);
 
-    M2Data * getM2Data(){ if (fsStatus == FileStatus::FSLoaded) {return m_m2Data;} else {return nullptr;}};
+    const M2Data * getM2Data() const { if (fsStatus == FileStatus::FSLoaded) {return m_m2Data;} else {return nullptr;}};
 
     M2Data *m_m2Data = nullptr;
     std::vector<uint32_t> skinFileDataIDs;
@@ -54,13 +57,19 @@ public:
 
     PGD1_chunk * particleGeosetData = nullptr;
 
+    EDGF * edgf = nullptr;
+    int edgf_count = 0;
+
+    DETL * detl = nullptr;
+    int detl_count = 0;
+
     EXP2 *exp2 = nullptr;
     std::vector<TXAC> txacMesh = {};
     std::vector<TXAC> txacMParticle = {};
 
     int m_skid = -1;
-    WaterFallDataV3 *m_wfv3 = 0;
-    WaterFallDataV3 *m_wfv1 = 0;
+    WaterFallDataV3 *m_wfv3 = nullptr;
+    WaterFallDataV3 *m_wfv1 = nullptr;
 
 
 private:
@@ -72,7 +81,7 @@ private:
     bool useFileId = false;
     int m_modelFileId;
 
-    HGVertexBuffer vertexVbo = HGVertexBuffer(nullptr);
+    HGVertexBuffer vertexVbo = nullptr;
     std::unordered_map<SkinGeom *, HGVertexBufferBindings> vaoMap;
 
 
@@ -100,4 +109,5 @@ private:
 };
 typedef std::shared_ptr<M2Geom> HM2Geom;
 
+extern std::atomic<int> m2SizeLoaded;
 #endif //WOWVIEWERLIB_M2GEOM_H

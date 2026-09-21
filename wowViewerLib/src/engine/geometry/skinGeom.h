@@ -8,17 +8,18 @@
 #include <vector>
 #include "../persistance/header/skinFileHeader.h"
 #include "../persistance/header/M2FileHeader.h"
-#include "../../gapi/interface/IDevice.h"
+
+#ifndef WOWLIB_EXCLUDE_RENDERER
+#include "../../renderer/mapScene/IMapSceneBufferCreate.h"
+#endif
 
 class SkinGeom : public PersistentFile {
 public:
-    SkinGeom(std::string fileName){};
-    SkinGeom(int fileDataId){};
+    SkinGeom(std::string fileName) : PersistentFile(fileName){};
+    SkinGeom(int fileDataId) : PersistentFile(fileDataId) {};
 
-    void process(HFileContent skinFile, const std::string &fileName) override;
-    HGIndexBuffer getIBO(const HGDevice &device);
-
-    std::vector<uint16_t> generateIndexBuffer();
+    void process(HFileContent skinFile) override;
+    void generateIndexBuffer(std::vector<uint16_t> &buffer);
 
     M2SkinProfile * getSkinData(){ if (fsStatus == FileStatus::FSLoaded) {return m_skinData;} else {return nullptr;}};
 
@@ -27,12 +28,17 @@ private:
     HFileContent m2Skin;
     M2SkinProfile *m_skinData = nullptr;
 
-    HGIndexBuffer indexVbo = HGIndexBuffer(nullptr);
     bool m_fixed = false;
+    void fixShaderIdBasedOnLayer(M2Data *m2Data);
+    void fixShaderIdBasedOnBlendOverride(M2Data *m2Data);
+#ifndef WOWLIB_EXCLUDE_RENDERER
+public:
+    HGIndexBuffer getIBO(const HMapSceneBufferCreate &renderer);
+private:
+    //This is being stored here, to prevent from IBO being created for same skin several times
+    HGIndexBuffer m_IBO = nullptr;
+#endif
 
-    void fixShaderIdBasedOnLayer(M2Data *m2Filem2File);
-
-    void fixShaderIdBasedOnBlendOverride(M2Data *m2File);
 };
 
 
