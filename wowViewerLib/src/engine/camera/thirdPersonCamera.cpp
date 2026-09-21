@@ -29,9 +29,10 @@ static const float RIGHT_DRAG_TO_LEFT_DRAG = 2.0f;
 static const float MOUSE_SPRINGINESS = 300.0f;
 //The free camera flies rather than walks, so the speed it is handed is far too fast for a
 //player on the ground: SceneWindow hands cameras 0.3 units per millisecond, which is 300
-//units a second. A WoW player runs at roughly 7 yards a second, so scale the shared speed
-//down to about that. Scaling rather than replacing keeps the Movement Speed slider working.
-static const float PLAYER_WALK_SPEED_SCALE = 0.023f;
+//units a second. Scale that down to a walking pace, a bit above the roughly 7 yards a
+//second a WoW player runs at, so getting around the map does not drag. Scaling rather than
+//replacing keeps the Movement Speed slider working.
+static const float PLAYER_WALK_SPEED_SCALE = 0.033f;
 
 void ThirdPersonCamera::addHorizontalViewDir(float val) {
     delta_x += val;

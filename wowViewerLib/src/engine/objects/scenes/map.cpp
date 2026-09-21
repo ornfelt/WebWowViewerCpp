@@ -812,8 +812,9 @@ void Map::getAdtAreaId(const mathfu::vec4 &cameraPos, int &areaId, int &parentAr
 //Fork-local: a stand-in "player" model that is kept relative to the camera.
 static const int CUSTOM_PLAYER_MODEL_FILE_ID = 125644;
 
-//Distance, in world units, the model is kept ahead of the camera in free camera mode
-static const float CUSTOM_PLAYER_MODEL_DISTANCE = 6.0f;
+//Distance, in world units, the model is kept ahead of the camera in free camera mode. Far
+//enough out that the model is seen whole rather than filling the view.
+static const float CUSTOM_PLAYER_MODEL_DISTANCE = 11.0f;
 //How far below the camera the model is placed in free camera mode
 static const float CUSTOM_PLAYER_MODEL_HEIGHT_DROP = 2.0f;
 //The value the height queries leave untouched when they have no ADT to sample
