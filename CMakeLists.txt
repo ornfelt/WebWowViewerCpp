@@ -329,6 +329,16 @@ if (USE_CUSTOM_CHANGES)
                     "$<TARGET_FILE_DIR:WowStudio>/spirv"
             COMMENT "Copying SPIRV directory to build configuration directory")
 
+        # TactCppLib links the shared zlib target, so the viewer needs zlib's dll at
+        # runtime. Upstream only covers this in its install() rules, which does not help
+        # when running from the build dir. The generator expression picks the right name
+        # per configuration (zlibd.dll for Debug, zlib.dll for Release).
+        add_custom_command(TARGET WowStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:zlib>"
+                    "$<TARGET_FILE_DIR:WowStudio>"
+            COMMENT "Copying zlib dll to build configuration directory")
+
         # Copy glew32.dll to the build configuration directory. glew_win only ships
         # Release binaries, and that is what GLEW_LIBRARIES links against as well.
         add_custom_command(TARGET WowStudio POST_BUILD
