@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_set>
 #include "../../../3rdparty/nlohmann/json.hpp"
+#include "../../../wowViewerLib/src/include/string_utils.h"
 
 struct BuildDefinition {
     std::string buildVersion;
@@ -67,6 +68,13 @@ struct BuildDefinitionHasher {
     };
 };
 
+// A classic product never ships the retail-only db2 tables, so the flag can be derived
+// from the product name. Only ever turns the flag on, so an explicit true is never lost
+// and entries stored before this was derived correct themselves when they are loaded.
+inline void deriveIsClassic(BuildDefinition &b) {
+    if (contains(b.productName, "classic")) b.isClassic = true;
+}
+
 // JSON serialization for BuildDefinition.
 // from_json only overwrites fields that are present in the JSON,
 // so it can be used to apply partial overrides on top of an existing value.
@@ -106,6 +114,8 @@ inline void from_json(const nlohmann::json& j, BuildDefinition& b) {
     if (j.contains("useTactLocal")) j.at("useTactLocal").get_to(b.useTactLocal);
     if (j.contains("localTactPath")) j.at("localTactPath").get_to(b.localTactPath);
     if (j.contains("isClassic")) j.at("isClassic").get_to(b.isClassic);
+
+    deriveIsClassic(b);
 }
 
 typedef std::unordered_set<BuildDefinition, BuildDefinitionHasher> SetOfBuildDefs;
