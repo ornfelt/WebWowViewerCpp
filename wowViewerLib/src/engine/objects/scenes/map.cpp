@@ -812,16 +812,9 @@ void Map::getAdtAreaId(const mathfu::vec4 &cameraPos, int &areaId, int &parentAr
 //Fork-local: a stand-in "player" model that is kept relative to the camera.
 static const int CUSTOM_PLAYER_MODEL_FILE_ID = 125644;
 
-//true  - WoW third person look: the model stays on the ground, a fixed distance ahead of
-//        the camera along its horizontal facing, with its feet snapped to the terrain.
-//false - the model is kept straight in front of the camera along the full view direction,
-//        no matter where the camera is or which way it looks.
-static const bool CUSTOM_PLAYER_MODEL_SNAP_TO_TERRAIN = true;
-
-//Distance, in world units, the model is kept ahead of the camera
+//Distance, in world units, the model is kept ahead of the camera in free camera mode
 static const float CUSTOM_PLAYER_MODEL_DISTANCE = 6.0f;
-//How far below the camera the model starts out when it is snapped to the terrain, and where
-//it stays when there is no ADT underneath to sample a height from
+//How far below the camera the model is placed in free camera mode
 static const float CUSTOM_PLAYER_MODEL_HEIGHT_DROP = 2.0f;
 //The value getPossibleHeight() leaves untouched when it has no ADT to sample
 static const float CUSTOM_PLAYER_MODEL_NO_HEIGHT = -99999.0f;
@@ -838,38 +831,45 @@ void Map::updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
         m_customPlayerModel->setAlwaysDraw(true);
     }
 
-    //The camera looks down -Z in view space (the look at matrices here are right handed), so
-    //the world space view direction is the inverse view matrix applied to (0, 0, -1, 0).
-    mathfu::vec3 lookDir =
-        (frustumData.viewMat.Inverse() * mathfu::vec4(0.0f, 0.0f, -1.0f, 0.0f)).xyz().Normalized();
-
-    mathfu::vec2 horizontalDir = mathfu::vec2(lookDir.x, lookDir.y);
-    bool horizontalDirIsUsable = horizontalDir.LengthSquared() > CUSTOM_PLAYER_MODEL_MIN_HORIZONTAL_DIR_SQ;
-    if (horizontalDirIsUsable) {
-        horizontalDir = horizontalDir.Normalized();
-    }
-
     mathfu::vec3 modelPos;
-    //Looking straight up or down leaves no horizontal facing to place the model along, so fall
-    //back to the in-front-of-the-camera placement for those frames.
-    if (CUSTOM_PLAYER_MODEL_SNAP_TO_TERRAIN && horizontalDirIsUsable) {
-        modelPos = mathfu::vec3(
-            cameraPos.x + horizontalDir.x * CUSTOM_PLAYER_MODEL_DISTANCE,
-            cameraPos.y + horizontalDir.y * CUSTOM_PLAYER_MODEL_DISTANCE,
-            cameraPos.z - CUSTOM_PLAYER_MODEL_HEIGHT_DROP);
+    float facingDeg;
+
+    if (m_customPlayerState != nullptr && m_api->getConfig()->customThirdPersonCamera) {
+        //Third person: the camera drives the player, all this has to do is put the model
+        //where the player stands and hand the terrain height back.
+        modelPos = m_customPlayerState->position;
 
         float terrainHeight = CUSTOM_PLAYER_MODEL_NO_HEIGHT;
         getPossibleHeight(mathfu::vec4(modelPos, 1.0f), terrainHeight);
         if (terrainHeight > CUSTOM_PLAYER_MODEL_NO_HEIGHT) {
             modelPos.z = terrainHeight;
+            //Sampling the ADT is the one part of the placement the camera cannot do itself,
+            //so write the height back for it to orbit around from the next frame on.
+            m_customPlayerState->position.z = terrainHeight;
+            m_customPlayerState->heightIsFromTerrain = true;
         }
-    } else {
-        modelPos = cameraPos.xyz() + lookDir * CUSTOM_PLAYER_MODEL_DISTANCE;
-    }
 
-    //An unrotated model faces +X, the same convention the GameObject placements rely on, so
-    //yawing it by the camera heading makes it face the way the camera does.
-    float facingDeg = horizontalDirIsUsable ? fromRadian(std::atan2(horizontalDir.y, horizontalDir.x)) : 0.0f;
+        facingDeg = fromRadian(m_customPlayerState->facingRad);
+    } else {
+        //Free camera: keep the model straight in front of the camera, wherever it is and
+        //whichever way it looks.
+        //The camera looks down -Z in view space (the look at matrices here are right handed),
+        //so the world space view direction is the inverse view matrix applied to (0, 0, -1, 0).
+        mathfu::vec3 lookDir =
+            (frustumData.viewMat.Inverse() * mathfu::vec4(0.0f, 0.0f, -1.0f, 0.0f)).xyz().Normalized();
+
+        modelPos = cameraPos.xyz() + lookDir * CUSTOM_PLAYER_MODEL_DISTANCE
+                   - mathfu::vec3(0.0f, 0.0f, CUSTOM_PLAYER_MODEL_HEIGHT_DROP);
+
+        //An unrotated model faces +X, the same convention the GameObject placements rely on,
+        //so yawing it by the camera heading makes it face the way the camera does. Looking
+        //straight up or down leaves no horizontal heading, so the facing is kept as it was.
+        mathfu::vec2 horizontalDir = mathfu::vec2(lookDir.x, lookDir.y);
+        facingDeg = horizontalDir.LengthSquared() > CUSTOM_PLAYER_MODEL_MIN_HORIZONTAL_DIR_SQ
+                        ? fromRadian(std::atan2(horizontalDir.y, horizontalDir.x))
+                        : m_customPlayerModelLastFacingDeg;
+        m_customPlayerModelLastFacingDeg = facingDeg;
+    }
 
     m_customPlayerModel->createPlacementMatrix(modelPos, facingDeg, mathfu::vec3(1.0f, 1.0f, 1.0f), nullptr);
     m_customPlayerModel->calcWorldPosition();

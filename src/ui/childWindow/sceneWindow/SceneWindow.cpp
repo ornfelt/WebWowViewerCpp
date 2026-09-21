@@ -5,6 +5,7 @@
 #include "SceneWindow.h"
 #include "../../../../wowViewerLib/src/renderer/mapScene/MapSceneRendererFactory.h"
 #include "../../../../wowViewerLib/src/engine/camera/firstPersonCamera.h"
+#include "../../../../wowViewerLib/src/engine/camera/thirdPersonCamera.h"
 #include "../../../../wowViewerLib/src/engine/objects/scenes/m2Scene.h"
 #include "../../../../wowViewerLib/src/engine/objects/scenes/wmoScene.h"
 #include "../../../../wowViewerLib/src/engine/objects/scenes/NullScene.h"
@@ -170,6 +171,60 @@ HApiContainer SceneWindow::createNewApiContainer() {
     return newApi;
 }
 
+void SceneWindow::createMapSceneCamera(const std::shared_ptr<Map> &mapScene,
+                                       float x, float y, float z, float movementSpeed) {
+#ifdef USE_CUSTOM_CHANGES
+    //Map scenes get a player for the third person camera to orbit, and Map keeps its feet
+    //on the terrain. The free camera mode leaves the player state in place but unused, so
+    //switching back and forth at runtime does not lose where the player was standing.
+    m_customPlayerState = std::make_shared<CustomPlayerState>();
+    m_customPlayerState->position = mathfu::vec3(x, y, z);
+    mapScene->setCustomPlayerState(m_customPlayerState);
+
+    m_customThirdPersonCameraActive = m_api->getConfig()->customThirdPersonCamera;
+    if (m_customThirdPersonCameraActive) {
+        m_camera = std::make_shared<ThirdPersonCamera>(m_customPlayerState);
+    } else {
+        m_camera = std::make_shared<FirstPersonCamera>();
+    }
+#else
+    m_camera = std::make_shared<FirstPersonCamera>();
+#endif
+    m_camera->setCameraPos(x, y, z);
+    m_camera->setMovementSpeed(movementSpeed);
+}
+
+#ifdef USE_CUSTOM_CHANGES
+void SceneWindow::updateCustomPlayerCamera() {
+    if (m_customPlayerState == nullptr) return;
+
+    bool wanted = m_api->getConfig()->customThirdPersonCamera;
+    if (wanted == m_customThirdPersonCameraActive) return;
+
+    //The two modes need different cameras, so the toggle swaps the instance. Hand the new
+    //one the player position so the view does not jump when switching.
+    float movementSpeed = m_camera != nullptr ? m_camera->getMovementSpeed() : 1.0f;
+    auto playerPos = m_customPlayerState->position;
+
+    if (wanted) {
+        m_camera = std::make_shared<ThirdPersonCamera>(m_customPlayerState);
+        m_camera->setCameraPos(playerPos.x, playerPos.y, playerPos.z);
+    } else {
+        auto freeCamera = std::make_shared<FirstPersonCamera>();
+        //Start the free camera where the third person one was looking from, so the switch
+        //does not teleport the view across the map.
+        float cameraPos[3] = {playerPos.x, playerPos.y, playerPos.z};
+        if (m_camera != nullptr) m_camera->getCameraPosition(cameraPos);
+        freeCamera->setCameraPos(cameraPos[0], cameraPos[1], cameraPos[2]);
+        freeCamera->setCameraLookAt(playerPos.x, playerPos.y, playerPos.z);
+        m_camera = freeCamera;
+    }
+    m_camera->setMovementSpeed(movementSpeed);
+
+    m_customThirdPersonCameraActive = wanted;
+}
+#endif
+
 void SceneWindow::openMapByIdAndWDTId(int mapId, int wdtFileId, float x, float y, float z, int timeOverride) {
     unload();
 
@@ -180,9 +235,7 @@ void SceneWindow::openMapByIdAndWDTId(int mapId, int wdtFileId, float x, float y
     mapScene->setWorldObjectManager(std::make_shared<WorldObjectManager>(createNewApiContainer(), mapId));
     m_currentScene = mapScene;
 
-    m_camera = std::make_shared<FirstPersonCamera>();
-    m_camera->setCameraPos(x,y,z);
-    m_camera->setMovementSpeed(movementSpeed);
+    createMapSceneCamera(mapScene, x, y, z, movementSpeed);
 
     if (timeOverride >= 0) {
         m_api->getConfig()->currentTime = timeOverride;
@@ -266,9 +319,7 @@ void SceneWindow::openMapByIdAndFilename(int mapId, const std::string &mapName, 
     mapScene->setWorldObjectManager(std::make_shared<WorldObjectManager>(createNewApiContainer(), mapId));
     m_currentScene = mapScene;
 
-    m_camera = std::make_shared<FirstPersonCamera>();
-    m_camera->setCameraPos(x,y,z);
-    m_camera->setMovementSpeed(movementSpeed);
+    createMapSceneCamera(mapScene, x, y, z, movementSpeed);
 
     if (timeOverride >= 0) {
         m_api->getConfig()->currentTime = timeOverride;
@@ -278,6 +329,13 @@ void SceneWindow::openMapByIdAndFilename(int mapId, const std::string &mapName, 
 
 
 void SceneWindow::unload() {
+#ifdef USE_CUSTOM_CHANGES
+    //Dropped here rather than in the map scene openers, so that opening an m2 or wmo
+    //scene does not leave the previous map's player behind for the runtime toggle to
+    //pick up and hand those scenes a third person camera they have no player for.
+    m_customPlayerState = nullptr;
+    m_customThirdPersonCameraActive = false;
+#endif
     m_sceneRenderer = nullptr;
     m_currentScene = std::make_shared<NullScene>();
     m_camera = nullptr;
@@ -327,6 +385,10 @@ SceneWindow::render(double deltaTime,
     if (!hasRenderer()) return;
 
     deltaTime *= m_api->getConfig()->timeMultiplier;
+
+#ifdef USE_CUSTOM_CHANGES
+    updateCustomPlayerCamera();
+#endif
 
     auto currentCamera = getCamera();
     if (!currentCamera) return;

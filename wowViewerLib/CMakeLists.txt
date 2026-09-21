@@ -185,6 +185,7 @@ set(SOURCE_FILES
         src/engine/shader/ShaderRuntimeData.h
         src/engine/opengl/header.h
         src/engine/camera/firstPersonCamera.cpp
+        src/engine/camera/thirdPersonCamera.cpp
         src/engine/camera/firstPersonCamera.h
         src/engine/camera/firstPersonOrthoCamera.cpp
         src/engine/camera/firstPersonOrthoCamera.h

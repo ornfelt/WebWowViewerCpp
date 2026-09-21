@@ -25,6 +25,7 @@
 #include "dayNightDataHolder/DayNightLightHolder.h"
 #include "../liquid/liquidMaterials/LiquidMaterialManager.h"
 #include "../worldObject/WorldObjectManager.h"
+#include "../../customPlayer/CustomPlayerState.h"
 
 enum class SceneMode {
    smMap,
@@ -82,10 +83,15 @@ protected:
     std::shared_ptr<M2Object> m_starsModel = nullptr;
 
 #ifdef USE_CUSTOM_CHANGES
-    //Fork-local stand-in "player" model, kept relative to the camera. See
-    //Map::updateCustomPlayerModel in map.cpp for the two placement modes.
+    //Fork-local stand-in "player" model. See Map::updateCustomPlayerModel in map.cpp for
+    //the two placement modes.
     std::shared_ptr<M2Object> m_customPlayerModel = nullptr;
     mathfu::mat4 m_customPlayerModelLastPlacement = mathfu::mat4::Identity();
+    //Kept so looking straight up or down does not spin the model in free camera mode
+    float m_customPlayerModelLastFacingDeg = 0.0f;
+    //Set when a third person camera is driving the player. Null means there is no player
+    //to follow and the model is placed in front of the camera instead.
+    HCustomPlayerState m_customPlayerState = nullptr;
 
     void updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
                                  const MathHelper::FrustumCullingData &frustumData,
@@ -178,6 +184,14 @@ public:
     void setWorldObjectManager(HWorldObjectManager worldObjectManager) {
         m_worldObjectManager = worldObjectManager;
     }
+
+#ifdef USE_CUSTOM_CHANGES
+    //Hands Map the player the third person camera drives. Map only writes position.z back,
+    //since sampling the terrain is the one part of the placement the camera cannot do.
+    void setCustomPlayerState(const HCustomPlayerState &playerState) {
+        m_customPlayerState = playerState;
+    }
+#endif
     HWorldObjectManager getWorldObjectManager() const {
         return m_worldObjectManager;
     }

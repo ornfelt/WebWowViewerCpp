@@ -1520,6 +1520,21 @@ void FrontendUI::showSettingsDialog() {
                 }
             }
 
+#ifdef USE_CUSTOM_CHANGES
+            if (ImGui::CollapsingHeader("Player camera")) {
+                bool thirdPerson = m_api->getConfig()->customThirdPersonCamera;
+                if (ImGui::Checkbox("Third person camera", &thirdPerson)) {
+                    m_api->getConfig()->customThirdPersonCamera = thirdPerson;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("On: the camera orbits a player model walking the terrain.\n"
+                                      "Left drag orbits, right drag turns the player,\n"
+                                      "A and D turn, Q and E strafe, the wheel zooms.\n"
+                                      "Off: free flying camera with the model kept in front of it.");
+                }
+            }
+
+#endif
             if (ImGui::CollapsingHeader("GameObjects")) {
                 bool renderGameObjects = m_api->getConfig()->renderGameObjects;
                 if (ImGui::Checkbox("Render Gameobjects", &renderGameObjects)) {

@@ -18,6 +18,7 @@
 #include "../../../../wowViewerLib/src/renderer/frame/SceneScenario.h"
 #include "../../renderer/uiScene/materials/UIMaterial.h"
 #include "../../renderer/uiScene/FrontendUIRenderer.h"
+#include "../../../../wowViewerLib/src/engine/customPlayer/CustomPlayerState.h"
 
 struct RenderTargetParameters {
     std::shared_ptr<ICamera> camera;
@@ -26,6 +27,8 @@ struct RenderTargetParameters {
 };
 
 class WorldObjectManager;
+
+class Map;
 
 class SceneWindow : public std::enable_shared_from_this<SceneWindow> {
 public:
@@ -132,6 +135,17 @@ protected:
     HApiContainer m_api;
     ViewPortDimensions m_dimension = {{0,0}, {0,0}};
     std::shared_ptr<ICamera> m_camera = nullptr;
+#ifdef USE_CUSTOM_CHANGES
+    //The player the third person camera drives and Map draws. Only created for map
+    //scenes; m2 and wmo scenes keep the plain free camera.
+    HCustomPlayerState m_customPlayerState = nullptr;
+    bool m_customThirdPersonCameraActive = false;
+    //Swaps the camera when Config::customThirdPersonCamera is flipped at runtime
+    void updateCustomPlayerCamera();
+#endif
+    //Builds the camera a freshly opened map scene starts with
+    void createMapSceneCamera(const std::shared_ptr<Map> &mapScene,
+                              float x, float y, float z, float movementSpeed);
 
     int m_currentCameraIndex = -1;
     std::vector<std::shared_ptr<ICamera>> m_cameraList;

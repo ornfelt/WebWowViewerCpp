@@ -11,6 +11,7 @@
 #include <thread>
 #include <mathfu/glsl_mappings.h>
 #include "../renderer/mapScene/FrameDependentData.h"
+#include "../engine/customPlayer/CustomPlayerState.h"
 
 constexpr float DEFAULT_FOV_VALUE = 53.9726294579437f;
 
@@ -59,6 +60,12 @@ public:
     std::unordered_set<int> disabledSkyScenePlayerConditions;
     bool renderLiquid = true;
     bool renderGameObjects = true;
+#ifdef USE_CUSTOM_CHANGES
+    //Fork-local. true: WoW style third person, the camera orbits a player model that
+    //walks the terrain. false: free flying camera with the model kept in front of it.
+    //Changing this swaps the camera, which SceneWindow picks up on the next frame.
+    bool customThirdPersonCamera = CUSTOM_PLAYER_THIRD_PERSON_DEFAULT;
+#endif
     bool showGameObjectNameplates = false;
     bool showGameObjectNameplatesForAll = false;
     bool renderBSP = false;
