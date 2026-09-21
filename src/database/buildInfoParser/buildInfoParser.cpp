@@ -87,6 +87,11 @@ SetOfBuildDefs BuildInfoParser::parseFileContent(std::string &data) {
 
         if (productIndex < values.size()) {
             buildDef.productName = values[productIndex];
+            //Classic products ship a smaller set of db2 tables. Deriving this from the
+            //product name here means an install picked up from .build.info gets it right;
+            //otherwise only typing the product name by hand in the storage dialog set it,
+            //and the db2 import aborted on the first retail-only table.
+            buildDef.isClassic = contains(buildDef.productName, "classic");
         }
 
         if (buildKeyIndex < values.size())
