@@ -93,8 +93,8 @@ protected:
     //to follow and the model is placed in front of the camera instead.
     HCustomPlayerState m_customPlayerState = nullptr;
 
-    //Cull stage: make sure the model exists and is offered as a draw candidate
-    void addCustomPlayerModelCandidate(M2ObjectListContainer &m2List);
+    //Cull stage: make sure the model exists and goes straight into the draw list
+    void addCustomPlayerModelToDraw(M2ObjectListContainer &m2List);
     //Update stage: place it, from the matrices the frame is actually going to be drawn with
     void placeCustomPlayerModel(const HMapRenderPlan &renderPlan);
     //Terrain height under a spot, interpolated so that walking a slope is not a staircase

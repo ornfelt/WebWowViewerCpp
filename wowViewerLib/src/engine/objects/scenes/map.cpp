@@ -842,7 +842,7 @@ void Map::getPossibleHeightInterpolated(const mathfu::vec4 &pos, float &height) 
     }
 }
 
-void Map::addCustomPlayerModelCandidate(M2ObjectListContainer &m2List) {
+void Map::addCustomPlayerModelToDraw(M2ObjectListContainer &m2List) {
     if (m_customPlayerModel == nullptr) {
         m_customPlayerModel = m2Factory->createObject(m_api, false, false);
         m_customPlayerModel->setLoadParams(0, {}, {});
@@ -850,7 +850,9 @@ void Map::addCustomPlayerModelCandidate(M2ObjectListContainer &m2List) {
         m_customPlayerModel->setAlwaysDraw(true);
     }
 
-    m2List.addCandidate(m_customPlayerModel);
+    //addToDraw also routes a model that has not finished loading into the load lists, so
+    //this is all that is needed to get it loaded and then drawn.
+    m2List.addToDraw(m_customPlayerModel);
 }
 
 //Called from update(), which runs right before updateBuffers() uploads the placement matrix
@@ -950,10 +952,6 @@ void Map::checkExterior(mathfu::vec4 &cameraPos,
         m_wdlObject->checkFrustumCulling(frustumData, cameraPos, exteriorView->m2List, mapRenderPlan->wmoArray);
     }
 
-#ifdef USE_CUSTOM_CHANGES
-    addCustomPlayerModelCandidate(exteriorView->m2List);
-#endif
-
     getCandidatesEntities(frustumData, cameraPos, mapRenderPlan, exteriorView->m2List, mapRenderPlan->wmoArray);
 
     if (m_worldObjectManager && m_api->getConfig()->renderGameObjects) {
@@ -1050,6 +1048,14 @@ void Map::checkExterior(mathfu::vec4 &cameraPos,
             }
         }
     }
+
+#ifdef USE_CUSTOM_CHANGES
+    //Added after the culling, not as a candidate before it, so it is never frustum culled.
+    //setAlwaysDraw() cannot express that here: the batched cull above only ever looks at the
+    //AABB. That box is also a frame or more behind, since the model is placed in the update
+    //stage, so culling against it made the model blink out while moving.
+    addCustomPlayerModelToDraw(exteriorView->m2List);
+#endif
 }
 
 void Map::getCandidatesEntities(const MathHelper::FrustumCullingData &frustumData,
