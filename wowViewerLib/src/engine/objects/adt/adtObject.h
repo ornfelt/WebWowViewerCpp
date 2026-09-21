@@ -58,6 +58,9 @@ public:
 
     int getAreaId(int mcnk_x, int mcnk_y);
     void getHeight(const mathfu::vec4 &camera, float &height);
+#ifdef USE_CUSTOM_CHANGES
+    void getHeightInterpolated(const mathfu::vec4 &pos, float &height);
+#endif
 
     int getAdtX() {return adt_x;}
     int getAdtY() {return adt_y;}

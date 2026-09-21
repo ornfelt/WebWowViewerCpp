@@ -1591,6 +1591,62 @@ void AdtObject::getHeight(const mathfu::vec4 &camera, float &height) {
     }
 }
 
+#ifdef USE_CUSTOM_CHANGES
+//Bilinear version of getHeight(). getHeight() floors to the nearest MCVT vertex, so the
+//height it returns is constant across a whole UNITSIZE cell and jumps at every cell border,
+//which makes anything following the terrain step up and down instead of walking a slope.
+//Interpolating over the chunk's 9x9 outer vertex grid gives a continuous height. The inner
+//8x8 vertices are left out, which approximates the real triangle fan but is far closer than
+//a single vertex. Neighbouring chunks share their edge vertices, so this stays continuous
+//across chunk borders too.
+void AdtObject::getHeightInterpolated(const mathfu::vec4 &pos, float &height) {
+    //9 outer and 8 inner vertices alternate per row, so one outer row starts every 17 floats
+    static const int MCVT_ROW_STRIDE = 17;
+    //Highest index into the 9 wide outer grid
+    static const int MCVT_OUTER_MAX_INDEX = 8;
+
+    int mcnk_x = worldCoordinateToGlobalAdtChunk(pos.y) % 16;
+    int mcnk_y = worldCoordinateToGlobalAdtChunk(pos.x) % 16;
+    auto index = m_adtFile->mcnkMap[mcnk_x][mcnk_y];
+    if (index <= -1) return;
+
+    const auto &mcnkObj = m_adtFile->mapTile[index];
+
+    //Same mapping as getHeight(): the chunk local axes are swapped against the world ones
+    auto indexes = (mathfu::vec2(mcnkObj.position.x, mcnkObj.position.y) - pos.xy()) * (1.0f / MathHelper::UNITSIZE);
+    float cellX = indexes.y;
+    float cellY = indexes.x;
+
+    //Clamped one short of the last vertex, so the +1 lookups below stay inside the grid
+    int indexX = std::min<int>(std::max<int>((int) floor(cellX), 0), MCVT_OUTER_MAX_INDEX - 1);
+    int indexY = std::min<int>(std::max<int>((int) floor(cellY), 0), MCVT_OUTER_MAX_INDEX - 1);
+
+    int holeLow = mcnkObj.holes_low_res;
+    uint64_t holeHigh = mcnkObj.postMop.holes_high_res;
+    bool isHole = (!mcnkObj.flags.high_res_holes) ?
+                  isHoleLowRes(holeLow, indexX, indexY) :
+                  isHoleHighRes(holeHigh, indexX, indexY);
+    if (isHole) return;
+
+    float fracX = std::min<float>(std::max<float>(cellX - (float) indexX, 0.0f), 1.0f);
+    float fracY = std::min<float>(std::max<float>(cellY - (float) indexY, 0.0f), 1.0f);
+
+    const auto *mcvt = m_adtFile->mcnkStructs[index].mcvt;
+    if (mcvt == nullptr) return;
+
+    auto outerVertex = [&](int ix, int iy) -> float {
+        return mcnkObj.position.z + mcvt->height[iy * MCVT_ROW_STRIDE + ix];
+    };
+
+    float lowRow = outerVertex(indexX, indexY) +
+                   (outerVertex(indexX + 1, indexY) - outerVertex(indexX, indexY)) * fracX;
+    float highRow = outerVertex(indexX, indexY + 1) +
+                    (outerVertex(indexX + 1, indexY + 1) - outerVertex(indexX, indexY + 1)) * fracX;
+
+    height = lowRow + (highRow - lowRow) * fracY;
+}
+#endif
+
 void AdtObject::createIBOAndBinding(const HMapSceneBufferCreate &sceneRenderer) {
     ZoneScoped;
 

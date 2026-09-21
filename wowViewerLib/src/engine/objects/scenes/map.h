@@ -83,7 +83,7 @@ protected:
     std::shared_ptr<M2Object> m_starsModel = nullptr;
 
 #ifdef USE_CUSTOM_CHANGES
-    //Fork-local stand-in "player" model. See Map::updateCustomPlayerModel in map.cpp for
+    //Fork-local stand-in "player" model. See Map::placeCustomPlayerModel in map.cpp for
     //the two placement modes.
     std::shared_ptr<M2Object> m_customPlayerModel = nullptr;
     mathfu::mat4 m_customPlayerModelLastPlacement = mathfu::mat4::Identity();
@@ -93,9 +93,12 @@ protected:
     //to follow and the model is placed in front of the camera instead.
     HCustomPlayerState m_customPlayerState = nullptr;
 
-    void updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
-                                 const MathHelper::FrustumCullingData &frustumData,
-                                 M2ObjectListContainer &m2List);
+    //Cull stage: make sure the model exists and is offered as a draw candidate
+    void addCustomPlayerModelCandidate(M2ObjectListContainer &m2List);
+    //Update stage: place it, from the matrices the frame is actually going to be drawn with
+    void placeCustomPlayerModel(const HMapRenderPlan &renderPlan);
+    //Terrain height under a spot, interpolated so that walking a slope is not a staircase
+    void getPossibleHeightInterpolated(const mathfu::vec4 &pos, float &height);
 #endif
 
     //Map mode

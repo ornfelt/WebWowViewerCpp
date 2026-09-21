@@ -816,20 +816,52 @@ static const int CUSTOM_PLAYER_MODEL_FILE_ID = 125644;
 static const float CUSTOM_PLAYER_MODEL_DISTANCE = 6.0f;
 //How far below the camera the model is placed in free camera mode
 static const float CUSTOM_PLAYER_MODEL_HEIGHT_DROP = 2.0f;
-//The value getPossibleHeight() leaves untouched when it has no ADT to sample
+//The value the height queries leave untouched when they have no ADT to sample
 static const float CUSTOM_PLAYER_MODEL_NO_HEIGHT = -99999.0f;
 //Below this the horizontal part of the view direction is too short to derive a facing from
 static const float CUSTOM_PLAYER_MODEL_MIN_HORIZONTAL_DIR_SQ = 0.0001f;
 
-void Map::updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
-                                  const MathHelper::FrustumCullingData &frustumData,
-                                  M2ObjectListContainer &m2List) {
+//Same as getPossibleHeight(), but asks the ADT for an interpolated height. getHeight()
+//returns the nearest MCVT vertex, which is constant across a cell and jumps at its border:
+//fine for the "is the camera above the ground" checks it was written for, a visible
+//staircase for a player model standing on it.
+void Map::getPossibleHeightInterpolated(const mathfu::vec4 &pos, float &height) {
+    if (m_wdtfile && m_wdtfile->getStatus() == FileStatus::FSLoaded) {
+        if (!m_wdtfile->mphd->flags.wdt_uses_global_map_obj) {
+            int adt_x = worldCoordinateToAdtIndex(pos.y);
+            int adt_y = worldCoordinateToAdtIndex(pos.x);
+            if ((adt_x >= 64) || (adt_x < 0)) return;
+            if ((adt_y >= 64) || (adt_y < 0)) return;
+
+            auto &adtObjectAt = mapTiles[adt_x][adt_y];
+            if (adtObjectAt != nullptr) {
+                adtObjectAt->getHeightInterpolated(pos, height);
+            }
+        }
+    }
+}
+
+void Map::addCustomPlayerModelCandidate(M2ObjectListContainer &m2List) {
     if (m_customPlayerModel == nullptr) {
         m_customPlayerModel = m2Factory->createObject(m_api, false, false);
         m_customPlayerModel->setLoadParams(0, {}, {});
         m_customPlayerModel->setModelFileId(CUSTOM_PLAYER_MODEL_FILE_ID);
         m_customPlayerModel->setAlwaysDraw(true);
     }
+
+    m2List.addCandidate(m_customPlayerModel);
+}
+
+//Called from update(), which runs right before updateBuffers() uploads the placement matrix
+//to the gpu. Placing the model here rather than during culling matters because culling and
+//updating are separate pipeline stages that run a frame or more apart: a position worked out
+//from the culling camera is stale by the time the frame is drawn, which is what made the
+//model visibly trail the camera in free camera mode.
+void Map::placeCustomPlayerModel(const HMapRenderPlan &renderPlan) {
+    if (m_customPlayerModel == nullptr) return;
+
+    auto &renderingMatrices = renderPlan->renderingMatrices;
+    if (renderingMatrices == nullptr) return;
 
     mathfu::vec3 modelPos;
     float facingDeg;
@@ -840,7 +872,7 @@ void Map::updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
         modelPos = m_customPlayerState->position;
 
         float terrainHeight = CUSTOM_PLAYER_MODEL_NO_HEIGHT;
-        getPossibleHeight(mathfu::vec4(modelPos, 1.0f), terrainHeight);
+        getPossibleHeightInterpolated(mathfu::vec4(modelPos, 1.0f), terrainHeight);
         if (terrainHeight > CUSTOM_PLAYER_MODEL_NO_HEIGHT) {
             modelPos.z = terrainHeight;
             //Sampling the ADT is the one part of the placement the camera cannot do itself,
@@ -855,8 +887,9 @@ void Map::updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
         //whichever way it looks.
         //The camera looks down -Z in view space (the look at matrices here are right handed),
         //so the world space view direction is the inverse view matrix applied to (0, 0, -1, 0).
+        const auto &cameraPos = renderingMatrices->cameraPos;
         mathfu::vec3 lookDir =
-            (frustumData.viewMat.Inverse() * mathfu::vec4(0.0f, 0.0f, -1.0f, 0.0f)).xyz().Normalized();
+            (renderingMatrices->lookAtMat.Inverse() * mathfu::vec4(0.0f, 0.0f, -1.0f, 0.0f)).xyz().Normalized();
 
         modelPos = cameraPos.xyz() + lookDir * CUSTOM_PLAYER_MODEL_DISTANCE
                    - mathfu::vec3(0.0f, 0.0f, CUSTOM_PLAYER_MODEL_HEIGHT_DROP);
@@ -877,7 +910,7 @@ void Map::updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
     //The culling AABB is only computed once, when the model finishes loading, and re-placement
     //does not recompute it. Shift the existing box by the placement delta instead, the same way
     //WorldObjectManager does it for its custom M2s. Without this the model would be culled away
-    //as soon as the camera left the spot the model was loaded at.
+    //as soon as the camera left the spot it happened to be loaded at.
     if (m_customPlayerModel->getHasBoundingBox()) {
         mathfu::mat4 delta = m_customPlayerModel->getModelMatrix() * m_customPlayerModelLastPlacement.Inverse();
         const CAaBox &prevBox = m_customPlayerModel->getAABB();
@@ -887,8 +920,6 @@ void Map::updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
             mathfu::vec4(prevBox.max.x, prevBox.max.y, prevBox.max.z, 1.0f)));
     }
     m_customPlayerModelLastPlacement = m_customPlayerModel->getModelMatrix();
-
-    m2List.addCandidate(m_customPlayerModel);
 }
 #endif
 
@@ -919,7 +950,7 @@ void Map::checkExterior(mathfu::vec4 &cameraPos,
     }
 
 #ifdef USE_CUSTOM_CHANGES
-    updateCustomPlayerModel(cameraPos, frustumData, exteriorView->m2List);
+    addCustomPlayerModelCandidate(exteriorView->m2List);
 #endif
 
     getCandidatesEntities(frustumData, cameraPos, mapRenderPlan, exteriorView->m2List, mapRenderPlan->wmoArray);
@@ -1357,6 +1388,12 @@ void Map::doPostLoad(const HMapSceneBufferCreate &sceneRenderer, const HMapRende
 
 void Map::update(const HMapRenderPlan &renderPlan) {
     ZoneScoped;
+
+#ifdef USE_CUSTOM_CHANGES
+    //Placed here, in the same stage that uploads it, so the model matrix and the view
+    //matrix the frame is drawn with come from the same frame
+    placeCustomPlayerModel(renderPlan);
+#endif
 
     mathfu::vec3 cameraVec3   = renderPlan->renderingMatrices->cameraPos.xyz();
     mathfu::mat4 &frustumMat  = renderPlan->renderingMatrices->perspectiveMat;
