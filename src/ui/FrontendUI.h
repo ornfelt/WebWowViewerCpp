@@ -102,7 +102,12 @@ private:
     bool showCurrentStats = true;
     bool showSelectMap = false;
     bool showMakeScreenshot = false;
+#ifdef USE_CUSTOM_CHANGES
+    //Fork-local: open the settings window straight away rather than from the menu
+    bool showSettings = true;
+#else
     bool showSettings = false;
+#endif
     bool showQuickLinks = false;
     bool showAboutWindow = false;
     bool showMinimapGeneratorSettings = false;
@@ -200,6 +205,8 @@ public:
     void showMakeScreenshotDialog();
 
     void showSettingsDialog();
+    //Creates the map selection dialog on first use, then shows it
+    void openMapSelectDialog();
     void showQuickLinksDialog();
 
     void showModeControls(const std::string &groupName, EParameterSource &source, bool allowM2AsSource = false);

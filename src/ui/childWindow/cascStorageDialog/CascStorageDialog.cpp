@@ -448,6 +448,13 @@ void CascStorageDialog::loadStorages() {
     } catch (const std::exception& e) {
         std::cerr << "Error loading cascStorages.json: " << e.what() << std::endl;
     }
+
+#ifdef USE_CUSTOM_CHANGES
+    //Fork-local: land on the first entry so "Open Selected" is usable straight away
+    if (m_selectedStorageIndex < 0 && !m_storages.empty()) {
+        m_selectedStorageIndex = 0;
+    }
+#endif
 }
 
 void CascStorageDialog::saveStorages() {

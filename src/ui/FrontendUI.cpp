@@ -64,6 +64,11 @@ FrontendUI::FrontendUI(HApiContainer api) {
             if (tryOpenCasc(path, buildDef)) {
                 cascOpened = true;
                 ImGui::OpenPopup("Casc succeed");
+#ifdef USE_CUSTOM_CHANGES
+                //Fork-local: opening a storage is only ever a step towards picking a map,
+                //so bring that list up instead of making it another trip through the menu
+                openMapSelectDialog();
+#endif
                 return true;
             } else {
                 return false;
@@ -653,6 +658,25 @@ void FrontendUI::showMapSelectionDialog() {
     }
 }
 
+void FrontendUI::openMapSelectDialog() {
+    if (!m_mapSelectDialog) {
+        auto weakPtr = weak_from_this();
+        m_mapSelectDialog = std::make_shared<MapSelectDialog>(m_api, m_uiRenderer,
+        [weakPtr]() -> std::shared_ptr<SceneWindow> {
+            auto sharedPtr = weakPtr.lock();
+            if (!sharedPtr) return nullptr;
+
+            return sharedPtr->getOrCreateWindow();
+        }, [weakPtr]() -> std::shared_ptr<SceneWindow> {
+            auto sharedPtr = weakPtr.lock();
+            if (!sharedPtr) return nullptr;
+
+            return sharedPtr->m_lastActiveScene.lock();
+        });
+    }
+    m_mapSelectDialog->show();
+}
+
 void FrontendUI::showCascStorageDialog() {
     if (m_cascStorageDialog) {
         m_cascStorageDialog->draw();
@@ -676,22 +700,7 @@ void FrontendUI::showMainMenu() {
             }
 
             if (ImGui::MenuItem("Open Map selection", "", false, cascOpened)) {
-                if (!m_mapSelectDialog) {
-                    auto weakPtr = weak_from_this();
-                    m_mapSelectDialog = std::make_shared<MapSelectDialog>(m_api, m_uiRenderer,
-                    [weakPtr]() -> std::shared_ptr<SceneWindow> {
-                        auto sharedPtr = weakPtr.lock();
-                        if (!sharedPtr) return nullptr;
-
-                        return sharedPtr->getOrCreateWindow();
-                    }, [weakPtr]() -> std::shared_ptr<SceneWindow> {
-                        auto sharedPtr = weakPtr.lock();
-                        if (!sharedPtr) return nullptr;
-
-                        return sharedPtr->m_lastActiveScene.lock();
-                    });
-                }
-                m_mapSelectDialog->show();
+                openMapSelectDialog();
             }
             if (ImGui::MenuItem("Unload scene", "", false, cascOpened)) {
                 unloadScene();
