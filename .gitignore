@@ -15,3 +15,5 @@ node_modules
 casc_config.txt
 test/.casc_config
 test/casc_config.txt
+/build/
+emscripten_port/build/

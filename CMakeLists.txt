@@ -17,6 +17,15 @@ cmake_policy(SET CMP0079 NEW)
 
 set(INCLUDE_PROTOBUF_LIB 0)
 
+# Fork-local changes that do not exist upstream. Turning this option off makes the
+# build behave exactly like Deamon87/WebWowViewerCpp. It has to be declared, and
+# turned into a compile definition, before add_subdirectory(wowViewerLib) so that
+# the library sources see it too.
+option(USE_CUSTOM_CHANGES "Enable fork-local custom changes" ON)
+if (USE_CUSTOM_CHANGES)
+	add_definitions(-DUSE_CUSTOM_CHANGES)
+endif()
+
 set(USE_NEON 0)
 if (CMAKE_NDK_BUILD MATCHES 1)
 	include_directories(BEFORE SYSTEM "${NDK_PATH}/include/c++/4.9.x/" "${NDK_PATH}/sysroot/usr/include/")
@@ -305,6 +314,58 @@ endif()
 add_library(WoWFrontendLib STATIC ${SOURCE_FILES} ${SOURCE_FILES_VULKAN} ${PROTOBUF_FILES_})
 add_executable(WowStudio src/main.cpp)
 target_link_libraries(WowStudio WoWFrontendLib)
+
+if (USE_CUSTOM_CHANGES)
+    # The viewer resolves "spirv", "export.db3" and "definitions" relative to its working
+    # directory, which is the directory the executable lives in. With MSVC that is a
+    # per-configuration subdirectory of the build dir, so everything has to be copied next
+    # to the executable; single-config generators put the executable in the build dir,
+    # where the shaders are generated already.
+    if(MSVC)
+        # Copy the compiled spirv shaders to the build configuration directory
+        add_custom_command(TARGET WowStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CMAKE_BINARY_DIR}/spirv"
+                    "$<TARGET_FILE_DIR:WowStudio>/spirv"
+            COMMENT "Copying SPIRV directory to build configuration directory")
+
+        # Copy glew32.dll to the build configuration directory. glew_win only ships
+        # Release binaries, and that is what GLEW_LIBRARIES links against as well.
+        add_custom_command(TARGET WowStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${CMAKE_SOURCE_DIR}/wowViewerLib/3rdparty/glew_win/bin/Release/x64/glew32.dll"
+                    "$<TARGET_FILE_DIR:WowStudio>"
+            COMMENT "Copying glew32.dll to build configuration directory")
+
+        # Custom command to copy the export.db3 file
+        add_custom_command(TARGET WowStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${CMAKE_SOURCE_DIR}/db/export.db3"
+                    "$<TARGET_FILE_DIR:WowStudio>"
+            COMMENT "Copying export.db3 to build directory")
+
+        # Custom command to copy the definitions directory
+        add_custom_command(TARGET WowStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CMAKE_SOURCE_DIR}/db/definitions"
+                    "$<TARGET_FILE_DIR:WowStudio>/definitions"
+            COMMENT "Copying definitions directory to build directory")
+    else()
+        # Custom command to copy the export.db3 file
+        add_custom_command(TARGET WowStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${CMAKE_SOURCE_DIR}/db/export.db3"
+                    "${CMAKE_BINARY_DIR}/export.db3"
+            COMMENT "Copying export.db3 to build directory")
+
+        # Custom command to copy the definitions directory
+        add_custom_command(TARGET WowStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CMAKE_SOURCE_DIR}/db/definitions"
+                    "${CMAKE_BINARY_DIR}/definitions"
+            COMMENT "Copying definitions directory to build directory")
+    endif()
+endif()
 
 if (Vulkan_FOUND)
 	add_definitions(-DLINK_VULKAN)
