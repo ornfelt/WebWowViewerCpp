@@ -78,7 +78,6 @@ int main() {
 //        if (TestIndex != 1 ) { TestIndex ++;continue;}
 
         const int mapId = testSuite.mapId;
-        const int lightParamIndex = 0;
 
         StateForConditions stateForConditions;
         
@@ -89,14 +88,13 @@ int main() {
             mapId,
             testSuite.pos,
             &stateForConditions,
-            zoneLights,
-            lightParamIndex
+            zoneLights
         );
 
-        stateForConditions.currentLightParams = paramBlends;
+        stateForConditions.currentLightParams = paramBlends.params;
 
         bool testPassed = false;
-        for (const IdAndBlendAndPriority &paramBlend : paramBlends) {
+        for (const IdAndBlendAndPriority &paramBlend : paramBlends.params) {
             if (paramBlend.id == testSuite.expectedLightParamId && feq(paramBlend.blend, testSuite.expectedBlend)) {
                 std::cout << "Test " << TestIndex << " passed" << std::endl;
                 testPassed = true;
