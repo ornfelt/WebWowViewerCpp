@@ -27,6 +27,11 @@ static const float MAX_BOOM_PITCH_DEG = 85.0f;
 static const float RIGHT_DRAG_TO_LEFT_DRAG = 2.0f;
 //Same smoothing FirstPersonCamera applies to accumulated mouse movement
 static const float MOUSE_SPRINGINESS = 300.0f;
+//The free camera flies rather than walks, so the speed it is handed is far too fast for a
+//player on the ground: SceneWindow hands cameras 0.3 units per millisecond, which is 300
+//units a second. A WoW player runs at roughly 7 yards a second, so scale the shared speed
+//down to about that. Scaling rather than replacing keeps the Movement Speed slider working.
+static const float PLAYER_WALK_SPEED_SCALE = 0.023f;
 
 void ThirdPersonCamera::addHorizontalViewDir(float val) {
     delta_x += val;
@@ -146,8 +151,9 @@ void ThirdPersonCamera::tick(animTime_t timeDelta) {
 
     //Walk the player. Movement is in the player's frame, not the camera's, so looking around
     //with a left drag does not change where W goes.
-    float forwardDist = (MDDepthPlus - MDDepthMinus) * m_moveSpeed * (float) timeDelta;
-    float strafeDist = (MDStrafeRight - MDStrafeLeft) * m_moveSpeed * (float) timeDelta;
+    float walkSpeed = m_moveSpeed * PLAYER_WALK_SPEED_SCALE;
+    float forwardDist = (MDDepthPlus - MDDepthMinus) * walkSpeed * (float) timeDelta;
+    float strafeDist = (MDStrafeRight - MDStrafeLeft) * walkSpeed * (float) timeDelta;
 
     if (forwardDist != 0.0f || strafeDist != 0.0f) {
         float facing = m_playerState->facingRad;
