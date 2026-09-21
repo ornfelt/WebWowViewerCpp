@@ -4,5 +4,3 @@ cache__
 cache_old
 cmake-build-*
 venv
-/build/
-emscripten_port/build/
