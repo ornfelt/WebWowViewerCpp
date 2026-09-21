@@ -808,6 +808,90 @@ void Map::getAdtAreaId(const mathfu::vec4 &cameraPos, int &areaId, int &parentAr
     }
 }
 
+#ifdef USE_CUSTOM_CHANGES
+//Fork-local: a stand-in "player" model that is kept relative to the camera.
+static const int CUSTOM_PLAYER_MODEL_FILE_ID = 125644;
+
+//true  - WoW third person look: the model stays on the ground, a fixed distance ahead of
+//        the camera along its horizontal facing, with its feet snapped to the terrain.
+//false - the model is kept straight in front of the camera along the full view direction,
+//        no matter where the camera is or which way it looks.
+static const bool CUSTOM_PLAYER_MODEL_SNAP_TO_TERRAIN = true;
+
+//Distance, in world units, the model is kept ahead of the camera
+static const float CUSTOM_PLAYER_MODEL_DISTANCE = 6.0f;
+//How far below the camera the model starts out when it is snapped to the terrain, and where
+//it stays when there is no ADT underneath to sample a height from
+static const float CUSTOM_PLAYER_MODEL_HEIGHT_DROP = 2.0f;
+//The value getPossibleHeight() leaves untouched when it has no ADT to sample
+static const float CUSTOM_PLAYER_MODEL_NO_HEIGHT = -99999.0f;
+//Below this the horizontal part of the view direction is too short to derive a facing from
+static const float CUSTOM_PLAYER_MODEL_MIN_HORIZONTAL_DIR_SQ = 0.0001f;
+
+void Map::updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
+                                  const MathHelper::FrustumCullingData &frustumData,
+                                  M2ObjectListContainer &m2List) {
+    if (m_customPlayerModel == nullptr) {
+        m_customPlayerModel = m2Factory->createObject(m_api, false, false);
+        m_customPlayerModel->setLoadParams(0, {}, {});
+        m_customPlayerModel->setModelFileId(CUSTOM_PLAYER_MODEL_FILE_ID);
+        m_customPlayerModel->setAlwaysDraw(true);
+    }
+
+    //The camera looks down -Z in view space (the look at matrices here are right handed), so
+    //the world space view direction is the inverse view matrix applied to (0, 0, -1, 0).
+    mathfu::vec3 lookDir =
+        (frustumData.viewMat.Inverse() * mathfu::vec4(0.0f, 0.0f, -1.0f, 0.0f)).xyz().Normalized();
+
+    mathfu::vec2 horizontalDir = mathfu::vec2(lookDir.x, lookDir.y);
+    bool horizontalDirIsUsable = horizontalDir.LengthSquared() > CUSTOM_PLAYER_MODEL_MIN_HORIZONTAL_DIR_SQ;
+    if (horizontalDirIsUsable) {
+        horizontalDir = horizontalDir.Normalized();
+    }
+
+    mathfu::vec3 modelPos;
+    //Looking straight up or down leaves no horizontal facing to place the model along, so fall
+    //back to the in-front-of-the-camera placement for those frames.
+    if (CUSTOM_PLAYER_MODEL_SNAP_TO_TERRAIN && horizontalDirIsUsable) {
+        modelPos = mathfu::vec3(
+            cameraPos.x + horizontalDir.x * CUSTOM_PLAYER_MODEL_DISTANCE,
+            cameraPos.y + horizontalDir.y * CUSTOM_PLAYER_MODEL_DISTANCE,
+            cameraPos.z - CUSTOM_PLAYER_MODEL_HEIGHT_DROP);
+
+        float terrainHeight = CUSTOM_PLAYER_MODEL_NO_HEIGHT;
+        getPossibleHeight(mathfu::vec4(modelPos, 1.0f), terrainHeight);
+        if (terrainHeight > CUSTOM_PLAYER_MODEL_NO_HEIGHT) {
+            modelPos.z = terrainHeight;
+        }
+    } else {
+        modelPos = cameraPos.xyz() + lookDir * CUSTOM_PLAYER_MODEL_DISTANCE;
+    }
+
+    //An unrotated model faces +X, the same convention the GameObject placements rely on, so
+    //yawing it by the camera heading makes it face the way the camera does.
+    float facingDeg = horizontalDirIsUsable ? fromRadian(std::atan2(horizontalDir.y, horizontalDir.x)) : 0.0f;
+
+    m_customPlayerModel->createPlacementMatrix(modelPos, facingDeg, mathfu::vec3(1.0f, 1.0f, 1.0f), nullptr);
+    m_customPlayerModel->calcWorldPosition();
+
+    //The culling AABB is only computed once, when the model finishes loading, and re-placement
+    //does not recompute it. Shift the existing box by the placement delta instead, the same way
+    //WorldObjectManager does it for its custom M2s. Without this the model would be culled away
+    //as soon as the camera left the spot the model was loaded at.
+    if (m_customPlayerModel->getHasBoundingBox()) {
+        mathfu::mat4 delta = m_customPlayerModel->getModelMatrix() * m_customPlayerModelLastPlacement.Inverse();
+        const CAaBox &prevBox = m_customPlayerModel->getAABB();
+        m_customPlayerModel->setAABB(MathHelper::transformAABBWithMat4(
+            delta,
+            mathfu::vec4(prevBox.min.x, prevBox.min.y, prevBox.min.z, 1.0f),
+            mathfu::vec4(prevBox.max.x, prevBox.max.y, prevBox.max.z, 1.0f)));
+    }
+    m_customPlayerModelLastPlacement = m_customPlayerModel->getModelMatrix();
+
+    m2List.addCandidate(m_customPlayerModel);
+}
+#endif
+
 void Map::checkExterior(mathfu::vec4 &cameraPos,
                         const MathHelper::FrustumCullingData &frustumData,
                         int viewRenderOrder,
@@ -833,6 +917,10 @@ void Map::checkExterior(mathfu::vec4 &cameraPos,
     if (m_wdlObject != nullptr) {
         m_wdlObject->checkFrustumCulling(frustumData, cameraPos, exteriorView->m2List, mapRenderPlan->wmoArray);
     }
+
+#ifdef USE_CUSTOM_CHANGES
+    updateCustomPlayerModel(cameraPos, frustumData, exteriorView->m2List);
+#endif
 
     getCandidatesEntities(frustumData, cameraPos, mapRenderPlan, exteriorView->m2List, mapRenderPlan->wmoArray);
 

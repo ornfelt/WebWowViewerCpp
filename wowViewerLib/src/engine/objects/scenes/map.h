@@ -81,6 +81,17 @@ protected:
     std::array<std::shared_ptr<IPlanetMaterial>, 3> m_planetMats = {nullptr, nullptr, nullptr};
     std::shared_ptr<M2Object> m_starsModel = nullptr;
 
+#ifdef USE_CUSTOM_CHANGES
+    //Fork-local stand-in "player" model, kept relative to the camera. See
+    //Map::updateCustomPlayerModel in map.cpp for the two placement modes.
+    std::shared_ptr<M2Object> m_customPlayerModel = nullptr;
+    mathfu::mat4 m_customPlayerModelLastPlacement = mathfu::mat4::Identity();
+
+    void updateCustomPlayerModel(const mathfu::vec4 &cameraPos,
+                                 const MathHelper::FrustumCullingData &frustumData,
+                                 M2ObjectListContainer &m2List);
+#endif
+
     //Map mode
     std::unordered_map<int, std::weak_ptr<M2Object>> m_m2MapObjects = {};
     std::unordered_map<int, std::weak_ptr<WmoObject>> m_wmoMapObjects = {};
